@@ -44,3 +44,32 @@ SOUTH_EAST = -7
 NORTH_WEST = 7
 SOUTH_WEST = -9
 
+def print_bitboard(bitboard):
+    """
+    Prints a bitboard as an 8x8 grid
+    """
+    print()
+    for rank in range(8):
+        # Print rank label
+        print(f" {8 - rank}", end = "")
+
+        for file in range(8):
+            # Map 2D coordinates to 1D index
+            square = rank * 8 + file
+            square_idx = (7 - rank) * 8 + file
+
+            # Check if the bit is set to 1 and not 0
+            if bitboard & (1 << square_idx):
+                print(" 1", end = "")
+            else:
+                print(" .", end = "")
+
+        # New line after every rank
+        print()
+
+    print("\n   ", end = "")
+    for file in range(8):
+        print(f" {chr(ord('a') + file)}", end = "")
+    print("\n")
+    print()
+
