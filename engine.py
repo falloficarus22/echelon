@@ -1,5 +1,6 @@
 import numpy as np
 from constants import *
+from attacks import king_attacks_table, knight_attacks_table
 
 class BoardState:
     def __init__(self):
@@ -100,3 +101,10 @@ if __name__ == "__main__":
 
     # Test 2: All occupied squares
     print_bitboard(engine.occupancies[2])
+
+    # Test 3: King on d4
+    print_bitboard(king_attacks_table[D4])
+
+    # Test 4: Knight on e5
+    print_bitboard(knight_attacks_table[E5])
+

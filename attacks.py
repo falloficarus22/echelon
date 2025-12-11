@@ -61,8 +61,8 @@ def mask_knight_attack(square):
 
 # Initialize Leaper Attack Tables
 # Bitboard of 64 zeros
-king_attacks_table = np.zeros(64, dtype = uint64)
-knight_attacks_table = np.zeros(64, dtype = uint64)
+king_attacks_table = np.zeros(64, dtype = np.uint64)
+knight_attacks_table = np.zeros(64, dtype = np.uint64)
 
 def init_leapers():
     """
@@ -70,8 +70,8 @@ def init_leapers():
     Will be called when the engine starts
     """
     for square in range(64):
-        king_attack_table[square] = mask_king_attack(square)
-        knight_attack_table[square] = mask_knight_attack(square)
+        king_attacks_table[square] = mask_king_attack(square)
+        knight_attacks_table[square] = mask_knight_attack(square)
 
 # The leaper function is called immediately when it is called
 init_leapers()
