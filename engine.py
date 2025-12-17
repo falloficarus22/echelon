@@ -87,6 +87,141 @@ class BoardState:
         # All occupancies
         self.occupancies[2] = self.occupancies[WHITE] | self.occupancies[BLACK]
 
+    def get_piece_squares(self, bitboard):
+        """
+        Extracts all sqaure indices from a bitboard.
+        Returns a list of sqaures (0 - 63) where bits are set.
+        """
+        squares = []
+
+        # Copy of a bitboard
+        temp = bitboard
+
+        # While there are still bits set
+        while temp:
+            least_significant_bit = temp & -temp
+
+            # Convert bits to square index
+            # bit_length() gives us the position
+            square = least_significant_bit.bit_length() - 1
+            squares.append(square)
+
+            temp &= temp - 1
+
+        return squares
+    
+    def get_piece_at_square(self, square, side):
+        """
+        Returns the piece present on a given square
+        """
+        # Bitmask for this specific square
+        square_mask = np.uint(64) << square
+
+        for piece_type in range(6):
+            piece_bitboard = self.bitboards[piece_type + (side * 6)]
+
+            if piece_bitboard and square_mask:
+                return piece_type
+            
+        return None
+
+    def get_king_square(self, side):
+        """
+        Find the square where the king of the given side is located. Returns the square index (0 - 63), -1 if not found.
+        """
+        king_bitboard = self.bitboards[KING + (side * 6)]
+
+        if king_bitboard == 0:
+            return -1 # Shouldn't happen ideally (in chess King is always present on the board)
+
+        return self.get_piece_squares(king_bitboard)[0]
+
+    def encode_move(self, source, target, piece, captured = 0, promotion = 0, flag = 0):
+        """
+        Encode a move into a 21-bit integer.
+
+        Params:
+        - source: source square (0-63)
+        - target: target square (0-63)
+        - piece: moving piece type
+        - captured: captured piece type (0-5. 0 = no capture)
+        - promotion: promotion piece type (0-4. 0 = no promotion)
+        - flag: special flag (0-7)
+
+        Returns: encoded - move integer
+        """
+        move = 0
+
+        # Source square bits 0-5
+        move |= source
+        
+        # Target square
+        move |= (target << 6)
+
+        # Piece type
+        move |= (piece << 12)
+
+        # Captured piece
+        move |= (captured << 15)
+
+        # Flags
+        move |= (flag << 18)
+
+        return move
+
+    def decode_move(self, move):
+        """
+        Decode a move integer into its components
+        """
+        source = move & 0x3F
+        target = (move >> 6) & 0x3F
+        piece = (move >> 12) & 0x7
+        captured = (move >> 15) & 0x7
+        flag = (move >> 18) & 0x7
+
+        return {
+            'from': source,
+            'to': target,
+            'piece': piece,
+            'captured': captured,
+            'flag': flag
+        }
+    
+    def generate_king_moves(self, side):
+        """
+        Generates all the pseudo-legal moves for the King.
+        """
+        moves = []
+
+        # Get king bitboard for this side
+        king_bitboard = self.bitboards(KING + (side * 6))
+        king_squares = get_king_bitboard(king_bitboard)
+        own_pieces = self.occupancies[side]
+
+        for king_sq in king_squares:
+            attack_bitboard = king_attacks_table[king_sq]
+            legal_targets = attack_bitboard & ~own_pieces
+            target_squares = self.get_piece_squares(legal_targets)
+
+            for target_sq in target_squares:
+                # Check if capture
+                captured_piece = self.get_piece_at_square(target_sq, 1 - side)
+
+                if captured_piece is None:
+                    captured_piece = 0
+
+                move = encode_move(
+                    source = king_sq,
+                    target = target_sq,
+                    piece = KING,
+                    captured = captured_piece,
+                    promotion = 0,
+                    flag = MOVE_FLAG_NORMAL
+                )
+                moves.append(move)
+
+        return moves
+
 if __name__ == "__main__":
     # Create the engine
     engine = BoardState()

@@ -44,6 +44,16 @@ SOUTH_EAST = -7
 NORTH_WEST = 7
 SOUTH_WEST = -9
 
+# Move Flags
+MOVE_FLAG_NORMAL = 0
+MOVE_FLAG_PROMOTION_KNIGHT = 1
+MOVE_FLAG_PROMOTION_BISHOP = 2
+MOVE_FLAG_PROMOTION_ROOK = 3
+MOVE_FLAG_PROMOTION_QUEEN = 4
+MOVE_FLAG_DOUBLE_PAWN_PUSH = 5
+MOVE_FLAG_EN_PASSANT = 6
+MOVE_FLAG_CASTLING = 7
+
 def print_bitboard(bitboard):
     """
     Prints a bitboard as an 8x8 grid
@@ -69,7 +79,7 @@ def print_bitboard(bitboard):
 
     print("\n   ", end = "")
     for file in range(8):
-        print(f" {chr(ord('a') + file)}", end = "")
+        print(f"{chr(ord('a') + file)} ", end = "")
     print("\n")
     print()
 

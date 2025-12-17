@@ -75,3 +75,130 @@ def init_leapers():
 
 # The leaper function is called immediately when it is called
 init_leapers()
+
+def generate_ray_attacks(square, occupancy, direction):
+    """
+    Generates a bitboard of attacks of sliding pieces through a single ray, 
+    stopping at the first blocker.
+
+    This function is primarily used to pre-calculate the Magic Lookup Tables.
+    """
+
+    attacks = np.uint64(0)
+    curr_sq = square
+
+    # Moving one step at a time until the boundary of the board
+    while True:
+        curr_sq += direction
+
+        # Check if the new square is outside the 8x8 boundary
+        if not (0 <= curr_sq <= 63):
+            break
+            
+        # Check for wrap-around
+        # For Rooks: Check file/rank consistency
+        if direction == EAST and (curr_sq % 8 == 0):
+            break
+        if direction == WEST and (curr_sq % 8 == 7):
+            break
+    
+        # For Bishops: Check if the distance to the edge is correct
+
+        # Set the attack bit
+        attacks |= (np.uint64(1) << curr_sq)
+
+        # Check for a blocker
+        if occupancy & (np.uint64(1) << curr_sq):
+            break
+
+    return attacks
+
+def generate_bishop_attacks(square, occupancy):
+    """
+    Generates all the pseudo-legal moves for the bishop.
+    """
+
+    attacks = np.uint64(0)
+
+    # Diagonal directions
+    directions = [NORTH_EAST, NORTH_WEST, SOUTH_EAST, SOUTH_WEST]
+
+    for direction in directions:
+        generate_ray_attacks(square, occupancy, direction)
+
+    return attacks
+
+def generate_rook_attacks(square, occupancy):
+    """
+    Generates all the pseudo-legal moves for the rook.
+    """
+
+    attacks = np.uint64(0)
+
+    # Directions for rook
+    directions = [EAST, WEST, NORTH, SOUTH]
+
+    for direction in directions:
+        generate_ray_attacks(square, occupancy, direction)
+
+    return attacks
+
+def generate_rook_mask(square):
+    """
+    Generates the mask of all relevant inner squares for a Rook.
+    (Excluding the edges of the board and the home square)
+    """
+
+    attacks = np.uint64(0)
+
+    directions = [EAST, WEST, NORTH, SOUTH]
+
+    for direction in directions:
+        curr_sq = square
+
+        # Move one step away from the starting square
+        curr_sq += direction
+
+        while 0 <= curr_sq <= 63:
+            attacks |= (np.uint64(1) << curr_sq)
+            curr_sq += direction
+
+            # If the next step is an edge, break
+            if not (0 <= curr_sq <= 63):
+                break
+            if direction == EAST and (curr_sq % 8 == 0):
+                break
+            if direction == WEST and (curr_sq % 8 == 7):
+                break
+            if direction == NORTH and (curr_sq // 8 == 7):
+                break
+            if direction == SOUTH and (curr_sq // 8 == 0):
+                break
+    
+    return attacks
+
+def generate_bishop_mask(square):
+    """
+    Generates the mask of all relevant inner squares for a Bishop.
+    (Excluding the edges of the board and the home square)
+    """
+    # Similar to rook masks but different directions and 
+    # edge detection logic
+    attacks = np.uint64(0)
+    directions = [NORTH_EAST, NORTH_WEST, SOUTH_EAST, SOUTH_WEST]
+
+    for direction in directions:
+        curr_sq = square
+        curr_sq += direction
+
+        while 0 <= curr_sq <= 63:
+            attacks |= (np.uint64(1) << curr_sq)
+            curr_sq += direction
+
+            # Boundary check if ray hits the edge of the board
+            if not (0 <= curr_sq <= 63):
+                break
+            if (curr_sq % 8 == 0) or (curr_sq % 8 == 7) or (curr_sq // 8 == 0) or (curr_sq // 8 == 7):
+                break
+
+    return attacks
