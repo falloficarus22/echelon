@@ -66,15 +66,48 @@ knight_attacks_table = np.zeros(64, dtype = np.uint64)
 
 def init_leapers():
     """
-    Populates the king and knight attack tables
-    Will be called when the engine starts
+    Populates the king and knight attack tables.
+    Will be called when the engine starts.
     """
     for square in range(64):
         king_attacks_table[square] = mask_king_attack(square)
         knight_attacks_table[square] = mask_knight_attack(square)
 
-# The leaper function is called immediately when it is called
+# The leaper function is called immediately when attacks.py is used
 init_leapers()
+
+def mask_pawn_attack(square, side):
+    attacks = np.uint64(0)
+    pawn_bitboard = np.uint64(1) << np.uint64(square)
+
+    if side == WHITE:
+        # Check if not on file A before capturing to the left
+        if not (pawn_bitboard & FILE_A):
+            attacks |= (pawn_bitboard << np.uint64(7))
+        # Check if not on file H before capturing to the right
+        if not (pawn_bitboard & FILE_H):
+            attacks |= (pawn_bitboard << np.uint64(9))
+    else:
+        # Check if not on file A before capturing to the left
+        if not (pawn_bitboard & FILE_A):
+            attacks |= (pawn_bitboard >> np.uint64(7))
+        # Check if not on File H before capturing to the right
+        if not (pawn_bitboard & FILE_H):
+            attacks |= (pawn_bitboard >> np.uint64(9))
+    
+    return attacks
+
+pawn_attacks_table = np.zeros((2, 64), dtype = np.uint64)
+
+def init_pawns():
+    """
+    Populates the pawn attack table.
+    """
+    for square in range(64):
+        pawn_attacks_table[WHITE][square] = mask_pawn_attack(square, WHITE)
+        pawn_attacks_table[BLACK][square] = mask_pawn_attack(square, BLACK)
+        
+init_pawns()
 
 def generate_ray_attacks(square, occupancy, direction):
     """

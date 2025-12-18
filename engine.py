@@ -1,6 +1,6 @@
 import numpy as np
 from constants import *
-from attacks import king_attacks_table, knight_attacks_table
+from attacks import king_attacks_table, knight_attacks_table, pawn_attacks_table
 
 class BoardState:
     def __init__(self):
@@ -120,7 +120,7 @@ class BoardState:
         for piece_type in range(6):
             piece_bitboard = self.bitboards[piece_type + (side * 6)]
 
-            if piece_bitboard and square_mask:
+            if piece_bitboard & square_mask:
                 return piece_type
             
         return None
@@ -194,8 +194,8 @@ class BoardState:
         moves = []
 
         # Get king bitboard for this side
-        king_bitboard = self.bitboards(KING + (side * 6))
-        king_squares = get_king_bitboard(king_bitboard)
+        king_bitboard = self.bitboards[KING + (side * 6)]
+        king_squares = self.get_piece_squares(king_bitboard)
         own_pieces = self.occupancies[side]
 
         for king_sq in king_squares:
@@ -204,16 +204,49 @@ class BoardState:
             target_squares = self.get_piece_squares(legal_targets)
 
             for target_sq in target_squares:
-                # Check if capture
                 captured_piece = self.get_piece_at_square(target_sq, 1 - side)
 
                 if captured_piece is None:
                     captured_piece = 0
 
-                move = encode_move(
+                move = self.encode_move(
                     source = king_sq,
                     target = target_sq,
                     piece = KING,
+                    captured = captured_piece,
+                    promotion = 0,
+                    flag = MOVE_FLAG_NORMAL
+                )
+                moves.append(move)
+
+        return moves
+    
+    def generate_knight_moves(self, side):
+        """
+        Generates all the pseudo-legal moves for the knight.
+        """
+        moves = []
+
+        # Get knight bitboard for this side
+        knight_bitboard = self.bitboards[KNIGHT + (side * 6)]
+        knight_squares = self.get_piece_squares(knight_bitboard)
+        own_pieces = self.occupancies[side]
+
+        for knight_sq in knight_squares:
+            attack_bitboard = knight_attacks_table[knight_sq]
+            legal_targets = attack_bitboard & ~own_pieces
+            target_squares = self.get_piece_squares(legal_targets)
+
+            for target_sq in target_squares:
+                captured_piece = self.get_piece_at_square(target_sq, 1 - side)
+
+                if captured_piece is None:
+                    captured_piece = 0
+                
+                move = self.encode_move(
+                    source = knight_sq,
+                    target = target_sq,
+                    piece = KNIGHT,
                     captured = captured_piece,
                     promotion = 0,
                     flag = MOVE_FLAG_NORMAL
@@ -243,3 +276,5 @@ if __name__ == "__main__":
     # Test 4: Knight on e5
     print_bitboard(knight_attacks_table[E5])
 
+    # Test 5: White pawn on b3
+    print_bitboard(pawn_attacks_table[WHITE][B3])
