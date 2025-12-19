@@ -235,3 +235,32 @@ def generate_bishop_mask(square):
                 break
 
     return attacks
+
+def set_occupancy(index, bits_in_mask, attacks_mask):
+        """
+        Returns a specific occupancy configuration from a mask.
+        index: which configurations to generate (0 to 2^bits_in_mask)
+        """
+        occupancy = np.uint64(0)
+
+        for i in range(bits_in_mask);
+            # Find the square of the i-th set bit in the mask
+            square = get_lsb_index(attack_mask)
+
+            # Clear that bit from the mask copy
+            attack_mask &= (attack_mask - np.uint64(1))
+
+            # If the i-th bit of our index is set, set this square in our occupancy
+            if index & (1 << i):
+                occupancy |= (np.uint64(1) << np.uint64(square))
+
+        return occupancy
+
+def get_lsb_index(bitboard):
+    """
+    Helper function to get the index of the least significant bit.
+    """
+    if bitboard == 0:
+        return -1
+    
+    return int(bitboard & -bitboard).bit_length() - 1

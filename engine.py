@@ -258,7 +258,7 @@ class BoardState:
     def generate_pawn_moves(self, side):
         moves = []
 
-        pawn_bitboard = self.bitboard[PAWN + (side * 6)]
+        pawn_bitboard = self.bitboards[PAWN + (side * 6)]
         pawn_squares = self.get_piece_squares(pawn_bitboard)
         occupancies = self.occupancies[2]
 
@@ -268,7 +268,7 @@ class BoardState:
             target_sq = source_sq + direction
 
             # Check if square in front is empty
-            if 0 <= target_sq <= 63 and not(occupancy & (np.uint64(1) << np.uint64(target_sq))):
+            if 0 <= target_sq <= 63 and not(occupancies & (np.uint64(1) << np.uint64(target_sq))):
                 # Is it a promotion
                 if (side == WHITE and target_sq >= 56) or (side == BLACK and target_sq <= 7):
                     # We have to generate 4 seperate moves for Q, R, B, N
@@ -280,11 +280,11 @@ class BoardState:
                     moves.append(self.encode_move(source_sq, target_sq, PAWN))
 
                     # Double pawn push (only if single pawn push was empty)
-                    # Check if pawn is on it's starting square\
-                    is_start_rank = (side == WHITE and source_sq >= 8 and source_sq <= 15) or (side == BLACK and source_sq == BLACK and source_sq >= 48 and source_sq <= 55)
+                    # Check if pawn is on it's starting square
+                    is_start_rank = (side == WHITE and source_sq >= 8 and source_sq <= 15) or (side == BLACK and source_sq >= 48 and source_sq <= 55)
                     double_target = source_sq + (direction * 2)
 
-                    if is_start_rank and not (occupancy & (np.uint64(1) << np.uint64(double_target))):
+                    if is_start_rank and not (occupancies & (np.uint64(1) << np.uint64(double_target))):
                         moves.append(self.encode_move(source_sq, double_target, PAWN, flag = MOVE_FLAG_DOUBLE_PAWN_PUSH))
 
             attacks = pawn_attacks_table[side][source_sq]
@@ -297,21 +297,23 @@ class BoardState:
                 captured_piece = self.get_piece_at_square(target_sq, opponent_side)
                 
                 # Check for promotion capture
-                if (side == WHITE and taget_sq >= 56) or (side == BLACK and target_sq <= 7):
+                if (side == WHITE and target_sq >= 56) or (side == BLACK and target_sq <= 7):
                     for promo in [MOVE_FLAG_PROMOTION_QUEEN, MOVE_FLAG_PROMOTION_ROOK,
                                   MOVE_FLAG_PROMOTION_BISHOP, MOVE_FLAG_PROMOTION_KNIGHT]:
                         moves.append(self.encode_move(source_sq, target_sq, PAWN, captured = captured_piece, flag = promo))
                 else:
-                    moves.append(self.encode_move(source_sq, target_sq, PAWN, captured = captured_piece)
+                    moves.append(self.encode_move(source_sq, target_sq, PAWN, captured = captured_piece))
             
             # En passant logic
-            if self.en_passant_sq != 1:
+            if self.en_passant_sq != -1:
                 # If any of the square we capturing is en passant square
                 ep_attacks = attacks & (np.uint64(1) << np.uint64(self.en_passant_sq))
                 if ep_attacks:
                     moves.append(self.encode_move(source_sq, self.en_passant_sq, PAWN, captured = PAWN, flag = MOVE_FLAG_EN_PASSANT))
                     
         return moves
+
+    
 
 if __name__ == "__main__":
     # Create the engine
