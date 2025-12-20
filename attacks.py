@@ -243,12 +243,12 @@ def set_occupancy(index, bits_in_mask, attacks_mask):
         """
         occupancy = np.uint64(0)
 
-        for i in range(bits_in_mask);
+        for i in range(bits_in_mask):
             # Find the square of the i-th set bit in the mask
-            square = get_lsb_index(attack_mask)
+            square = get_lsb_index(attacks_mask)
 
             # Clear that bit from the mask copy
-            attack_mask &= (attack_mask - np.uint64(1))
+            attack_mask &= (attacks_mask - np.uint64(1))
 
             # If the i-th bit of our index is set, set this square in our occupancy
             if index & (1 << i):

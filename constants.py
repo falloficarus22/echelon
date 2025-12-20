@@ -75,6 +75,14 @@ RANK_6 = np.uint64(0x0000FF0000000000)
 RANK_7 = np.uint64(0x00FF000000000000)
 RANK_8 = np.uint64(0xFF00000000000000)
 
+# Magic Table sizes
+BISHOP_TABLE_SIZE = 512
+ROOK_TABLE_SIZE = 4096
+
+# The actual tables
+bishop_attacks = np.zeros((64, 512), dtype = np.uint64)
+rook_attacks = np.zeros((64, 4096), dtype = np.uint64)
+
 def print_bitboard(bitboard):
     """
     Prints a bitboard as an 8x8 grid
