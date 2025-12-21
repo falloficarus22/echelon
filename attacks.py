@@ -157,7 +157,7 @@ def generate_bishop_attacks(square, occupancy):
     directions = [NORTH_EAST, NORTH_WEST, SOUTH_EAST, SOUTH_WEST]
 
     for direction in directions:
-        generate_ray_attacks(square, occupancy, direction)
+        attacks |= generate_ray_attacks(square, occupancy, direction)
 
     return attacks
 
@@ -172,7 +172,7 @@ def generate_rook_attacks(square, occupancy):
     directions = [EAST, WEST, NORTH, SOUTH]
 
     for direction in directions:
-        generate_ray_attacks(square, occupancy, direction)
+        attacks |= generate_ray_attacks(square, occupancy, direction)
 
     return attacks
 
@@ -242,13 +242,14 @@ def set_occupancy(index, bits_in_mask, attacks_mask):
         index: which configurations to generate (0 to 2^bits_in_mask)
         """
         occupancy = np.uint64(0)
+        mask_copy = attacks_mask
 
         for i in range(bits_in_mask):
             # Find the square of the i-th set bit in the mask
-            square = get_lsb_index(attacks_mask)
+            i, square = pop_bit(mask_copy)
 
             # Clear that bit from the mask copy
-            attack_mask &= (attacks_mask - np.uint64(1))
+            attacks_mask &= (attacks_mask - np.uint64(1))
 
             # If the i-th bit of our index is set, set this square in our occupancy
             if index & (1 << i):
@@ -263,4 +264,27 @@ def get_lsb_index(bitboard):
     if bitboard == 0:
         return -1
     
-    return int(bitboard & -bitboard).bit_length() - 1
+    lsb = bitboard & -bitboard
+    return int(np.log2(lsb))
+
+def pop_bit(bitboard):
+    """
+    Remove and return the least significant bit.
+    """
+    if bitboard == 0:
+        return bitboard, -1
+    
+    index = get_lsb_index(bitboard)
+    return bitboard & (bitboard - np.uint64(1)), index
+
+def count_bits(bitboard):
+    """
+    Count the number of set bits in bitboard
+    """
+    count = 0
+    while bitboard:
+        bitboard &= bitboard - np.uint64(1)
+        count += 1
+
+    return count
+

@@ -115,7 +115,7 @@ class BoardState:
         Returns the piece present on a given square
         """
         # Bitmask for this specific square
-        square_mask = np.uint(64) << square
+        square_mask = np.uint64(1) << square
 
         for piece_type in range(6):
             piece_bitboard = self.bitboards[piece_type + (side * 6)]
