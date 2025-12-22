@@ -2,6 +2,7 @@ import numpy as np
 from constants import *
 from attacks import king_attacks_table, knight_attacks_table, pawn_attacks_table
 
+
 class BoardState:
     def __init__(self):
         """
@@ -10,15 +11,15 @@ class BoardState:
         """
         # Bitboards: 12 integers (6 piece types * 2 colors)
         # We initialize the bitboard to 0 and assign the intgers later
-        self.bitboards = np.zeros(12, dtype = np.uint64)
+        self.bitboards = np.zeros(12, dtype=np.uint64)
 
         # Occupancies: 3 integers (White, Black, All)
         # These are "helper" bitboards used to check if a square is empty
-        self.occupancies = np.zeros(3, dtype = np.uint64)
+        self.occupancies = np.zeros(3, dtype=np.uint64)
 
         # Game State Variables
         self.side = WHITE
-        self.en_passant_sq = -1 # -1 means no en-passant square available
+        self.en_passant_sq = -1  # -1 means no en-passant square available
         self.castle_rights = 0
 
     def parse_fen(self, fen):
@@ -40,12 +41,22 @@ class BoardState:
         file = 0
 
         piece_map = {
-            'P': PAWN, 'N': KNIGHT, 'B':BISHOP, 'R': ROOK, 'Q': QUEEN, 'K': KING,
-            'p': PAWN, 'n': KNIGHT, 'b':BISHOP, 'r': ROOK, 'q': QUEEN, 'k': KING
+            "P": PAWN,
+            "N": KNIGHT,
+            "B": BISHOP,
+            "R": ROOK,
+            "Q": QUEEN,
+            "K": KING,
+            "p": PAWN,
+            "n": KNIGHT,
+            "b": BISHOP,
+            "r": ROOK,
+            "q": QUEEN,
+            "k": KING,
         }
 
         for char in board_part:
-            if char =="/":
+            if char == "/":
                 rank -= 1
                 file = 0
             elif char.isdigit():
@@ -66,7 +77,7 @@ class BoardState:
                 file += 1
 
         # Set the side to move
-        self.side = WHITE if turn_part =='w' else BLACK
+        self.side = WHITE if turn_part == "w" else BLACK
 
         # Update occupancies
         self.update_occupancies()
@@ -109,7 +120,7 @@ class BoardState:
             temp &= temp - 1
 
         return squares
-    
+
     def get_piece_at_square(self, square, side):
         """
         Returns the piece present on a given square
@@ -122,7 +133,7 @@ class BoardState:
 
             if piece_bitboard & square_mask:
                 return piece_type
-            
+
         return None
 
     def get_king_square(self, side):
@@ -132,11 +143,11 @@ class BoardState:
         king_bitboard = self.bitboards[KING + (side * 6)]
 
         if king_bitboard == 0:
-            return -1 # Shouldn't happen ideally (in chess King is always present on the board)
+            return -1  # Shouldn't happen ideally (in chess King is always present on the board)
 
         return self.get_piece_squares(king_bitboard)[0]
 
-    def encode_move(self, source, target, piece, captured = 0, promotion = 0, flag = 0):
+    def encode_move(self, source, target, piece, captured=0, promotion=0, flag=0):
         """
         Encode a move into a 21-bit integer.
 
@@ -154,18 +165,18 @@ class BoardState:
 
         # Source square bits 0-5
         move |= source
-        
+
         # Target square
-        move |= (target << 6)
+        move |= target << 6
 
         # Piece type
-        move |= (piece << 12)
+        move |= piece << 12
 
         # Captured piece
-        move |= (captured << 15)
+        move |= captured << 15
 
         # Flags
-        move |= (flag << 18)
+        move |= flag << 18
 
         return move
 
@@ -179,14 +190,8 @@ class BoardState:
         captured = (move >> 15) & 0x7
         flag = (move >> 18) & 0x7
 
-        return {
-            'from': source,
-            'to': target,
-            'piece': piece,
-            'captured': captured,
-            'flag': flag
-        }
-    
+        return {"from": source, "to": target, "piece": piece, "captured": captured, "flag": flag}
+
     def generate_king_moves(self, side):
         """
         Generates all the pseudo-legal moves for the King.
@@ -210,17 +215,17 @@ class BoardState:
                     captured_piece = 0
 
                 move = self.encode_move(
-                    source = king_sq,
-                    target = target_sq,
-                    piece = KING,
-                    captured = captured_piece,
-                    promotion = 0,
-                    flag = MOVE_FLAG_NORMAL
+                    source=king_sq,
+                    target=target_sq,
+                    piece=KING,
+                    captured=captured_piece,
+                    promotion=0,
+                    flag=MOVE_FLAG_NORMAL,
                 )
                 moves.append(move)
 
         return moves
-    
+
     def generate_knight_moves(self, side):
         """
         Generates all the pseudo-legal moves for the knight.
@@ -242,14 +247,14 @@ class BoardState:
 
                 if captured_piece is None:
                     captured_piece = 0
-                
+
                 move = self.encode_move(
-                    source = knight_sq,
-                    target = target_sq,
-                    piece = KNIGHT,
-                    captured = captured_piece,
-                    promotion = 0,
-                    flag = MOVE_FLAG_NORMAL
+                    source=knight_sq,
+                    target=target_sq,
+                    piece=KNIGHT,
+                    captured=captured_piece,
+                    promotion=0,
+                    flag=MOVE_FLAG_NORMAL,
                 )
                 moves.append(move)
 
@@ -268,24 +273,36 @@ class BoardState:
             target_sq = source_sq + direction
 
             # Check if square in front is empty
-            if 0 <= target_sq <= 63 and not(occupancies & (np.uint64(1) << np.uint64(target_sq))):
+            if 0 <= target_sq <= 63 and not (occupancies & (np.uint64(1) << np.uint64(target_sq))):
                 # Is it a promotion
                 if (side == WHITE and target_sq >= 56) or (side == BLACK and target_sq <= 7):
                     # We have to generate 4 seperate moves for Q, R, B, N
-                    for promo in [MOVE_FLAG_PROMOTION_QUEEN, MOVE_FLAG_PROMOTION_ROOK,
-                                  MOVE_FLAG_PROMOTION_BISHOP, MOVE_FLAG_PROMOTION_KNIGHT]:
-                        moves.append(self.encode_move(source_sq, target_sq, PAWN, flag = promo))
+                    for promo in [
+                        MOVE_FLAG_PROMOTION_QUEEN,
+                        MOVE_FLAG_PROMOTION_ROOK,
+                        MOVE_FLAG_PROMOTION_BISHOP,
+                        MOVE_FLAG_PROMOTION_KNIGHT,
+                    ]:
+                        moves.append(self.encode_move(source_sq, target_sq, PAWN, flag=promo))
                 else:
                     # Normal push
                     moves.append(self.encode_move(source_sq, target_sq, PAWN))
 
                     # Double pawn push (only if single pawn push was empty)
                     # Check if pawn is on it's starting square
-                    is_start_rank = (side == WHITE and source_sq >= 8 and source_sq <= 15) or (side == BLACK and source_sq >= 48 and source_sq <= 55)
+                    is_start_rank = (side == WHITE and source_sq >= 8 and source_sq <= 15) or (
+                        side == BLACK and source_sq >= 48 and source_sq <= 55
+                    )
                     double_target = source_sq + (direction * 2)
 
-                    if is_start_rank and not (occupancies & (np.uint64(1) << np.uint64(double_target))):
-                        moves.append(self.encode_move(source_sq, double_target, PAWN, flag = MOVE_FLAG_DOUBLE_PAWN_PUSH))
+                    if is_start_rank and not (
+                        occupancies & (np.uint64(1) << np.uint64(double_target))
+                    ):
+                        moves.append(
+                            self.encode_move(
+                                source_sq, double_target, PAWN, flag=MOVE_FLAG_DOUBLE_PAWN_PUSH
+                            )
+                        )
 
             attacks = pawn_attacks_table[side][source_sq]
             opponent_side = 1 - side
@@ -295,25 +312,42 @@ class BoardState:
             for target_sq in target_squares:
                 # Get captured piece type
                 captured_piece = self.get_piece_at_square(target_sq, opponent_side)
-                
+
                 # Check for promotion capture
                 if (side == WHITE and target_sq >= 56) or (side == BLACK and target_sq <= 7):
-                    for promo in [MOVE_FLAG_PROMOTION_QUEEN, MOVE_FLAG_PROMOTION_ROOK,
-                                  MOVE_FLAG_PROMOTION_BISHOP, MOVE_FLAG_PROMOTION_KNIGHT]:
-                        moves.append(self.encode_move(source_sq, target_sq, PAWN, captured = captured_piece, flag = promo))
+                    for promo in [
+                        MOVE_FLAG_PROMOTION_QUEEN,
+                        MOVE_FLAG_PROMOTION_ROOK,
+                        MOVE_FLAG_PROMOTION_BISHOP,
+                        MOVE_FLAG_PROMOTION_KNIGHT,
+                    ]:
+                        moves.append(
+                            self.encode_move(
+                                source_sq, target_sq, PAWN, captured=captured_piece, flag=promo
+                            )
+                        )
                 else:
-                    moves.append(self.encode_move(source_sq, target_sq, PAWN, captured = captured_piece))
-            
+                    moves.append(
+                        self.encode_move(source_sq, target_sq, PAWN, captured=captured_piece)
+                    )
+
             # En passant logic
             if self.en_passant_sq != -1:
                 # If any of the square we capturing is en passant square
                 ep_attacks = attacks & (np.uint64(1) << np.uint64(self.en_passant_sq))
                 if ep_attacks:
-                    moves.append(self.encode_move(source_sq, self.en_passant_sq, PAWN, captured = PAWN, flag = MOVE_FLAG_EN_PASSANT))
-                    
+                    moves.append(
+                        self.encode_move(
+                            source_sq,
+                            self.en_passant_sq,
+                            PAWN,
+                            captured=PAWN,
+                            flag=MOVE_FLAG_EN_PASSANT,
+                        )
+                    )
+
         return moves
 
-    
 
 if __name__ == "__main__":
     # Create the engine
