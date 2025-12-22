@@ -1,6 +1,7 @@
 import numpy as np
 from constants import *
 from attacks import king_attacks_table, knight_attacks_table, pawn_attacks_table
+from magic_bitboards import get_rook_attacks, get_bishop_attacks, get_queen_attacks
 
 
 class BoardState:
@@ -347,6 +348,457 @@ class BoardState:
                     )
 
         return moves
+    
+    def make_move(self, move):
+        """
+        Makes a move on the board and updates all state variables.
+        Returns a MoveHistory object containing irreversible state.
+        
+        This function:
+        1. Saves irreversible state (for unmake)
+        2. Updates bitboards
+        3. Handles special moves (castling, en passant, promotion)
+        4. Updates occupancies
+        5. Switches sides
+        """
+        # Create history object to store irreversible state
+        history = MoveHistory()
+        history.en_passant_sq = self.en_passant_sq
+        history.castle_rights = self.castle_rights
+        history.halfmove_clock = self.halfmove_clock if hasattr(self, 'halfmove_clock') else 0
+        
+        # Decode move
+        decoded = self.decode_move(move)
+        source = decoded['from']
+        target = decoded['to']
+        piece = decoded['piece']
+        captured = decoded['captured']
+        flag = decoded['flag']
+        
+        # Store captured piece
+        history.captured_piece = captured
+        
+        # Get the piece bitboard index for current side
+        piece_idx = piece + (self.side * 6)
+        
+        # Clear en passant square (will be set again if double pawn push)
+        self.en_passant_sq = -1
+        
+        # Update halfmove clock (for 50-move rule)
+        if piece == PAWN or captured != 0:
+            self.halfmove_clock = 0
+        else:
+            self.halfmove_clock += 1
+        
+        # Handle different move types
+        if flag == MOVE_FLAG_NORMAL:
+            # Remove piece from source square
+            self.bitboards[piece_idx] &= ~(np.uint64(1) << source)
+            
+            # Handle capture
+            if captured != 0:
+                captured_idx = captured + ((1 - self.side) * 6)
+                self.bitboards[captured_idx] &= ~(np.uint64(1) << target)
+            
+            # Place piece on target square
+            self.bitboards[piece_idx] |= (np.uint64(1) << target)
+        
+        elif flag == MOVE_FLAG_DOUBLE_PAWN_PUSH:
+            # Remove pawn from source
+            self.bitboards[piece_idx] &= ~(np.uint64(1) << source)
+            # Place pawn on target
+            self.bitboards[piece_idx] |= (np.uint64(1) << target)
+            
+            # Set en passant square (the square behind the pawn)
+            if self.side == WHITE:
+                self.en_passant_sq = source + 8
+            else:
+                self.en_passant_sq = source - 8
+        
+        elif flag == MOVE_FLAG_EN_PASSANT:
+            # Remove pawn from source
+            self.bitboards[piece_idx] &= ~(np.uint64(1) << source)
+            # Place pawn on target
+            self.bitboards[piece_idx] |= (np.uint64(1) << target)
+            
+            # Remove captured pawn (not on target square!)
+            if self.side == WHITE:
+                captured_sq = target - 8
+            else:
+                captured_sq = target + 8
+            
+            captured_idx = PAWN + ((1 - self.side) * 6)
+            self.bitboards[captured_idx] &= ~(np.uint64(1) << captured_sq)
+        
+        elif flag in [MOVE_FLAG_PROMOTION_QUEEN, MOVE_FLAG_PROMOTION_ROOK, 
+                    MOVE_FLAG_PROMOTION_BISHOP, MOVE_FLAG_PROMOTION_KNIGHT]:
+            # Remove pawn from source
+            self.bitboards[piece_idx] &= ~(np.uint64(1) << source)
+            
+            # Handle capture on target square
+            if captured != 0:
+                captured_idx = captured + ((1 - self.side) * 6)
+                self.bitboards[captured_idx] &= ~(np.uint64(1) << target)
+            
+            # Determine promotion piece
+            promo_piece = {
+                MOVE_FLAG_PROMOTION_QUEEN: QUEEN,
+                MOVE_FLAG_PROMOTION_ROOK: ROOK,
+                MOVE_FLAG_PROMOTION_BISHOP: BISHOP,
+                MOVE_FLAG_PROMOTION_KNIGHT: KNIGHT
+            }[flag]
+            
+            # Place promoted piece on target
+            promo_idx = promo_piece + (self.side * 6)
+            self.bitboards[promo_idx] |= (np.uint64(1) << target)
+        
+        elif flag == MOVE_FLAG_CASTLING:
+            # Move king
+            self.bitboards[piece_idx] &= ~(np.uint64(1) << source)
+            self.bitboards[piece_idx] |= (np.uint64(1) << target)
+            
+            # Move rook
+            rook_idx = ROOK + (self.side * 6)
+            
+            # Determine rook source and target based on king's movement
+            if target > source:  # Kingside castling
+                if self.side == WHITE:
+                    # White kingside: H1 -> F1
+                    self.bitboards[rook_idx] &= ~(np.uint64(1) << H1)
+                    self.bitboards[rook_idx] |= (np.uint64(1) << F1)
+                else:
+                    # Black kingside: H8 -> F8
+                    self.bitboards[rook_idx] &= ~(np.uint64(1) << H8)
+                    self.bitboards[rook_idx] |= (np.uint64(1) << F8)
+            else:  # Queenside castling
+                if self.side == WHITE:
+                    # White queenside: A1 -> D1
+                    self.bitboards[rook_idx] &= ~(np.uint64(1) << A1)
+                    self.bitboards[rook_idx] |= (np.uint64(1) << D1)
+                else:
+                    # Black queenside: A8 -> D8
+                    self.bitboards[rook_idx] &= ~(np.uint64(1) << A8)
+                    self.bitboards[rook_idx] |= (np.uint64(1) << D8)
+        
+        # Update castling rights
+        # If king moves, remove all castling rights for that side
+        if piece == KING:
+            if self.side == WHITE:
+                self.castle_rights &= 0b1100  # Remove white's rights (bits 0,1)
+            else:
+                self.castle_rights &= 0b0011  # Remove black's rights (bits 2,3)
+        
+        # If rook moves from or piece captured on corner squares, update castling rights
+        # We'll use a simple lookup to determine which castling rights to remove
+        castling_rights_mask = [
+            0b1110, 0b1111, 0b1111, 0b1111, 0b1111, 0b1111, 0b1111, 0b1101,  # Rank 1
+            0b1111, 0b1111, 0b1111, 0b1111, 0b1111, 0b1111, 0b1111, 0b1111,  # Rank 2-7
+            0b1111, 0b1111, 0b1111, 0b1111, 0b1111, 0b1111, 0b1111, 0b1111,
+            0b1111, 0b1111, 0b1111, 0b1111, 0b1111, 0b1111, 0b1111, 0b1111,
+            0b1111, 0b1111, 0b1111, 0b1111, 0b1111, 0b1111, 0b1111, 0b1111,
+            0b1111, 0b1111, 0b1111, 0b1111, 0b1111, 0b1111, 0b1111, 0b1111,
+            0b1111, 0b1111, 0b1111, 0b1111, 0b1111, 0b1111, 0b1111, 0b1111,
+            0b1011, 0b1111, 0b1111, 0b1111, 0b1111, 0b1111, 0b1111, 0b0111   # Rank 8
+        ]
+        
+        self.castle_rights &= castling_rights_mask[source]
+        self.castle_rights &= castling_rights_mask[target]
+        
+        # Update occupancies
+        self.update_occupancies()
+        
+        # Switch sides
+        self.side = 1 - self.side
+        
+        return history
+
+    def unmake_move(self, move, history):
+        """
+        Unmakes a move and restores the board to its previous state.
+        
+        Args:
+            move: The encoded move to unmake
+            history: MoveHistory object returned by make_move()
+        """
+        # Switch side back first
+        self.side = 1 - self.side
+        
+        # Decode move
+        decoded = self.decode_move(move)
+        source = decoded['from']
+        target = decoded['to']
+        piece = decoded['piece']
+        captured = history.captured_piece  # Use captured from history, not move
+        flag = decoded['flag']
+        
+        # Get the piece bitboard index for current side
+        piece_idx = piece + (self.side * 6)
+        
+        # Handle different move types (reverse of make_move)
+        if flag == MOVE_FLAG_NORMAL:
+            # Remove piece from target square
+            self.bitboards[piece_idx] &= ~(np.uint64(1) << target)
+            
+            # Place piece back on source square
+            self.bitboards[piece_idx] |= (np.uint64(1) << source)
+            
+            # Restore captured piece
+            if captured != 0:
+                captured_idx = captured + ((1 - self.side) * 6)
+                self.bitboards[captured_idx] |= (np.uint64(1) << target)
+        
+        elif flag == MOVE_FLAG_DOUBLE_PAWN_PUSH:
+            # Remove pawn from target
+            self.bitboards[piece_idx] &= ~(np.uint64(1) << target)
+            # Place pawn back on source
+            self.bitboards[piece_idx] |= (np.uint64(1) << source)
+        
+        elif flag == MOVE_FLAG_EN_PASSANT:
+            # Remove pawn from target
+            self.bitboards[piece_idx] &= ~(np.uint64(1) << target)
+            # Place pawn back on source
+            self.bitboards[piece_idx] |= (np.uint64(1) << source)
+            
+            # Restore captured pawn (not on target square!)
+            if self.side == WHITE:
+                captured_sq = target - 8
+            else:
+                captured_sq = target + 8
+            
+            captured_idx = PAWN + ((1 - self.side) * 6)
+            self.bitboards[captured_idx] |= (np.uint64(1) << captured_sq)
+        
+        elif flag in [MOVE_FLAG_PROMOTION_QUEEN, MOVE_FLAG_PROMOTION_ROOK,
+                    MOVE_FLAG_PROMOTION_BISHOP, MOVE_FLAG_PROMOTION_KNIGHT]:
+            # Determine which piece was promoted to
+            promo_piece = {
+                MOVE_FLAG_PROMOTION_QUEEN: QUEEN,
+                MOVE_FLAG_PROMOTION_ROOK: ROOK,
+                MOVE_FLAG_PROMOTION_BISHOP: BISHOP,
+                MOVE_FLAG_PROMOTION_KNIGHT: KNIGHT
+            }[flag]
+            
+            # Remove promoted piece from target
+            promo_idx = promo_piece + (self.side * 6)
+            self.bitboards[promo_idx] &= ~(np.uint64(1) << target)
+            
+            # Place pawn back on source
+            self.bitboards[piece_idx] |= (np.uint64(1) << source)
+            
+            # Restore captured piece if there was one
+            if captured != 0:
+                captured_idx = captured + ((1 - self.side) * 6)
+                self.bitboards[captured_idx] |= (np.uint64(1) << target)
+        
+        elif flag == MOVE_FLAG_CASTLING:
+            # Move king back
+            self.bitboards[piece_idx] &= ~(np.uint64(1) << target)
+            self.bitboards[piece_idx] |= (np.uint64(1) << source)
+            
+            # Move rook back
+            rook_idx = ROOK + (self.side * 6)
+            
+            if target > source:  # Was kingside castling
+                if self.side == WHITE:
+                    self.bitboards[rook_idx] &= ~(np.uint64(1) << F1)
+                    self.bitboards[rook_idx] |= (np.uint64(1) << H1)
+                else:
+                    self.bitboards[rook_idx] &= ~(np.uint64(1) << F8)
+                    self.bitboards[rook_idx] |= (np.uint64(1) << H8)
+            else:  # Was queenside castling
+                if self.side == WHITE:
+                    self.bitboards[rook_idx] &= ~(np.uint64(1) << D1)
+                    self.bitboards[rook_idx] |= (np.uint64(1) << A1)
+                else:
+                    self.bitboards[rook_idx] &= ~(np.uint64(1) << D8)
+                    self.bitboards[rook_idx] |= (np.uint64(1) << A8)
+        
+        # Restore irreversible state from history
+        self.en_passant_sq = history.en_passant_sq
+        self.castle_rights = history.castle_rights
+        self.halfmove_clock = history.halfmove_clock
+        
+        # Update occupancies
+        self.update_occupancies()
+
+    def is_square_attacked(self, square, attacking_side):
+        """
+        Checks if a square is attacked by any piece of the given side.
+        
+        Args:
+            square: Square index (0-63) to check
+            attacking_side: Side (WHITE or BLACK) doing the attacking
+        
+        Returns:
+            True if the square is attacked, False otherwise
+        
+        This function checks for attacks from:
+        - Pawns (diagonal attacks)
+        - Knights (L-shaped jumps)
+        - Bishops (diagonal rays)
+        - Rooks (straight rays)
+        - Queens (bishop + rook rays)
+        - King (one square in any direction)
+        """
+        
+        # Get all pieces of the attacking side
+        all_occupancy = self.occupancies[2]
+        
+        # Check for pawn attacks
+        # We check if our square can "attack" enemy pawns (inverse logic)
+        # If we're checking white attacks, we look from black pawn perspective
+        defending_side = 1 - attacking_side
+        pawn_attacks = pawn_attacks_table[defending_side][square]
+        attacking_pawns = self.bitboards[PAWN + (attacking_side * 6)]
+        if pawn_attacks & attacking_pawns:
+            return True
+        
+        # Check for knight attacks
+        knight_attacks = knight_attacks_table[square]
+        attacking_knights = self.bitboards[KNIGHT + (attacking_side * 6)]
+        if knight_attacks & attacking_knights:
+            return True
+        
+        # Check for bishop attacks (and queen diagonal)
+        bishop_attacks = get_bishop_attacks(square, all_occupancy)
+        attacking_bishops = self.bitboards[BISHOP + (attacking_side * 6)]
+        attacking_queens = self.bitboards[QUEEN + (attacking_side * 6)]
+        if bishop_attacks & (attacking_bishops | attacking_queens):
+            return True
+        
+        # Check for rook attacks (and queen straight)
+        rook_attacks = get_rook_attacks(square, all_occupancy)
+        attacking_rooks = self.bitboards[ROOK + (attacking_side * 6)]
+        if rook_attacks & (attacking_rooks | attacking_queens):
+            return True
+        
+        # Check for king attacks
+        king_attacks = king_attacks_table[square]
+        attacking_king = self.bitboards[KING + (attacking_side * 6)]
+        if king_attacks & attacking_king:
+            return True
+        
+        return False
+
+    def is_in_check(self, side):
+        """
+        Checks if the given side's king is in check.
+        
+        Args:
+            side: Side (WHITE or BLACK) to check
+        
+        Returns:
+            True if the king is in check, False otherwise
+        """
+        king_square = self.get_king_square(side)
+        
+        if king_square == -1:
+            # No king found (shouldn't happen in valid positions)
+            return False
+        
+        # Check if enemy is attacking the king square
+        return self.is_square_attacked(king_square, 1 - side)
+
+    def generate_legal_moves(self, side):
+        """
+        Generates all legal moves (pseudo-legal moves that don't leave king in check).
+        
+        This is the function you'll use in your search algorithm.
+        """
+        pseudo_legal_moves = self.generate_all_moves(side)
+        legal_moves = []
+        
+        for move in pseudo_legal_moves:
+            # Make the move
+            history = self.make_move(move)
+            
+            # Check if our king is in check after the move
+            # Note: side has switched in make_move, so we check (1 - side)
+            if not self.is_in_check(1 - self.side):
+                legal_moves.append(move)
+            
+            # Unmake the move
+            self.unmake_move(move, history)
+        
+        return legal_moves
+
+    def can_castle_kingside(self, side):
+        """
+        Checks if kingside castling is legal.
+        """
+        # Check castling rights
+        if side == WHITE:
+            if not (self.castle_rights & 0b0001):  # White kingside
+                return False
+            king_sq = E1
+            rook_sq = H1
+            squares_between = [F1, G1]
+            squares_not_attacked = [E1, F1, G1]
+        else:
+            if not (self.castle_rights & 0b0100):  # Black kingside
+                return False
+            king_sq = E8
+            rook_sq = H8
+            squares_between = [F8, G8]
+            squares_not_attacked = [E8, F8, G8]
+        
+        # Check if squares between are empty
+        for sq in squares_between:
+            if self.occupancies[2] & (np.uint64(1) << sq):
+                return False
+        
+        # Check if king is in check or passes through check
+        enemy_side = 1 - side
+        for sq in squares_not_attacked:
+            if self.is_square_attacked(sq, enemy_side):
+                return False
+        
+        return True
+
+    def can_castle_queenside(self, side):
+        """
+        Checks if queenside castling is legal.
+        """
+        # Check castling rights
+        if side == WHITE:
+            if not (self.castle_rights & 0b0010):  # White queenside
+                return False
+            king_sq = E1
+            rook_sq = A1
+            squares_between = [B1, C1, D1]
+            squares_not_attacked = [E1, D1, C1]
+        else:
+            if not (self.castle_rights & 0b1000):  # Black queenside
+                return False
+            king_sq = E8
+            rook_sq = A8
+            squares_between = [B8, C8, D8]
+            squares_not_attacked = [E8, D8, C8]
+        
+        # Check if squares between are empty
+        for sq in squares_between:
+            if self.occupancies[2] & (np.uint64(1) << sq):
+                return False
+        
+        # Check if king is in check or passes through check
+        enemy_side = 1 - side
+        for sq in squares_not_attacked:
+            if self.is_square_attacked(sq, enemy_side):
+                return False
+        
+        return True
+
+
+class MoveHistory:
+    """
+    Stores irreversible state that cannot be deduced from the board position.
+    This info is needed to unmake moves correctly.
+    """
+    def __init__(self):
+        self.captured_piece = 0
+        self.en_passant_sq = -1
+        self.castle_rights = 0
+        self.halfmove_clock = 0
 
 
 if __name__ == "__main__":
