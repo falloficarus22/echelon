@@ -22,6 +22,7 @@ class BoardState:
         self.side = WHITE
         self.en_passant_sq = -1  # -1 means no en-passant square available
         self.castle_rights = 0
+        self.halfmove_clock = 0
 
     def parse_fen(self, fen):
         """
@@ -787,6 +788,107 @@ class BoardState:
                 return False
         
         return True
+
+    def generate_bishop_moves(self, side):
+        """
+        Generates all pseudo-legal bishop moves
+        """
+        moves = []
+        bishop_bitboard = self.bitboards[BISHOP + (side * 6)]
+        bishop_squares = self.get_piece_squares(bishop_bitboard)
+        own_pieces = self.occupancies[side]
+        all_pieces = self.occupancies[2]
+
+        for bishop_sq in bishop_squares:
+            # Get bishop attacks using magic bitboards
+            attack_bitboard = get_bishop_attacks(bishop_sq, all_pieces)
+            legal_targets = attack_bitboard & ~own_pieces
+            target_squares = self.get_piece_squares(legal_targets)
+
+            for target_sq in target_squares:
+                captured_piece = self.get_piece_at_square(target_sq, 1 - side)
+                
+                if captured_piece is None:
+                    captured_piece = 0
+
+                move = self.encode_move(
+                    source = bishop_sq,
+                    target = target_sq,
+                    piece = BISHOP,
+                    captured = captured_piece
+                    promotion = 0,
+                    flag = MOVE_FLAG_NORMAL
+                )
+                moves.append(move)
+
+        return moves
+    
+    def generate_rook_moves(self, side):
+        """
+        Generate all pseudo-legal rook moves
+        """
+        moves = []
+        rook_bitboard = self.bitboards[ROOK + (side * 6)]
+        rook_squares = self.get_piece_squares(rook_bitboard)
+        own_pieces = self.occupancies[side]
+        all_pieces = self.occupancies[2]
+
+        for rook_sq in rook_squares:
+            attack_bitboard = get_rook_attacks(rook_sq, all_pieces)
+            legal_targets = attack_bitboard & ~own_pieces
+            target_squares = self.get_piece_squares(legal_targets)
+
+            for target_sq in target_squares:
+                captured_piece = self.get_piece_at_square(target_sq, 1 - side)
+                
+                if captured_piece is None:
+                    captured_piece = 0
+
+                move = self.encode_move(
+                    source = rook_sq,
+                    target = target_sq,
+                    piece = ROOK,
+                    captured = captured_piece
+                    promotion = 0,
+                    flag = MOVE_FLAG_NORMAL
+                )
+                moves.append(move)
+
+        return moves
+    
+    def generate_queen_moves(self, side):
+        """
+        Generate all pseudo-legal moves for queen
+        """
+        moves = []
+        queen_bitboard = self.bitboards[QUEEN + (side * 6)]
+        queen_squares = self.get_piece_squares(queen_bitboard)
+        own_pieces = self.occupancies[side]
+        all_pieces = self.occupancies[2]
+
+        for queen_sq in queen_squares:
+            # Get queen attacks (rook + bishop) using magic bitboards
+            attack_bitboard = get_queen_attacks(queen_sq, all_pieces)
+            legal_targets = attack_bitboard & ~own_pieces
+            target_squares = self.get_piece_squares(legal_targets)
+
+            for target_sq in target_squares:
+                captured_piece = self.get_piece_at_square(target_sq, 1 - side)
+
+                if captured_piece is None:
+                    captured_piece = 0
+                
+                move = self.encode_move(
+                    source = queen_sq,
+                    target = target_sq,
+                    piece = QUEEN,
+                    captured = captured_piece,
+                    promotion = 0,
+                    flag = MOVE_FLAG_NORMAL
+                )
+                moves.append(move)
+
+        return moves
 
 
 class MoveHistory:
