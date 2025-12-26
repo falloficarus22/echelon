@@ -815,7 +815,7 @@ class BoardState:
                     source = bishop_sq,
                     target = target_sq,
                     piece = BISHOP,
-                    captured = captured_piece
+                    captured = captured_piece,
                     promotion = 0,
                     flag = MOVE_FLAG_NORMAL
                 )
@@ -848,7 +848,7 @@ class BoardState:
                     source = rook_sq,
                     target = target_sq,
                     piece = ROOK,
-                    captured = captured_piece
+                    captured = captured_piece,
                     promotion = 0,
                     flag = MOVE_FLAG_NORMAL
                 )
@@ -887,6 +887,46 @@ class BoardState:
                     flag = MOVE_FLAG_NORMAL
                 )
                 moves.append(move)
+
+        return moves
+
+    def generate_all_moves(self, side):
+        """
+        Generates all pseudo-legal moves for all the pieces of a given side.
+        This includes captures, quiet moves and castling moves
+        """
+        moves = []
+
+        # Gather moves from all pieces
+        moves.extend(self.generate_bishop_moves())
+        moves.extend(self.generate_rook_moves())
+        moves.extend(self.generate_queen_moves())
+        moves.extend(self.generate_king_moves())
+        moves.extend(self.generate_pawn_moves())
+        moves.extend(self.generate_knight_moves())
+
+        # Handle Castling
+        # Kingside
+        if self.can_castle_kingside(side):
+            target_sq = G1 if side == WHITE else G8
+            source_sq = E1 if side == WHITE else E8
+            moves.append(self.encode_move(
+                source = source_sq,
+                target = target_sq,
+                piece = KING,
+                flag = MOVE_FLAG_CASTLING
+            ))
+
+        # Queenside
+        if self.can_castle_queenside(side):
+            target_sq = C1 if side == WHITE else C8
+            source_Sq = E1 if side == WHITE else E8
+            moves.append(self.encode_move(
+                source = source_sq,
+                target = target_sq,
+                piece = KING,
+                flag = MOVE_FLAG_CASTLING
+            ))
 
         return moves
 
