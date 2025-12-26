@@ -263,7 +263,8 @@ def set_occupancy(index, bits_in_mask, attacks_mask):
 
     for i in range(bits_in_mask):
         # Find the square of the i-th set bit in the mask
-        i, square = pop_bit(mask_copy)
+        remaining_mask, square = pop_bit(mask_copy)
+        mask_copy = remaining_mask
 
         # Clear that bit from the mask copy
         attacks_mask &= attacks_mask - np.uint64(1)

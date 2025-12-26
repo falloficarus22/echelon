@@ -929,7 +929,30 @@ class BoardState:
             ))
 
         return moves
+    
+    def evaluate(self):
+        """
+        Evaluation for the engine which returns a score in centipawns (100 = 1 pawn).
+        Positive = Advantage for White, Negatiev = Advantage for Black
+        """
+        score = 0
 
+        # Material values
+        # 100 = pawn, 320 = knight, 330 = bishop, rook = 500, queen = 900
+        # 0 = king because it is always there
+        PIECE_VALUES = [100, 320, 330, 500, 900, 0]
+
+        for piece_type in range(6):
+            # Add white material
+            white_count = count_bits(self.bitboards[piece_type + (WHITE * 6)])
+            score += white_count * PIECE_VALUES[piece_type]
+
+            # Subtract black material
+            black_count = count_bits(self.bitboards[piece_type + (BLACK * 6)])
+            score -= black_count * PIECE_VALUES[piece_type]
+
+        # Side to move bonus
+        return score if self.side == WHITE else -score
 
 class MoveHistory:
     """
