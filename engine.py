@@ -1,6 +1,6 @@
 import numpy as np
 from constants import *
-from attacks import king_attacks_table, knight_attacks_table, pawn_attacks_table
+from attacks import king_attacks_table, knight_attacks_table, pawn_attacks_table, count_bits
 from magic_bitboards import get_rook_attacks, get_bishop_attacks, get_queen_attacks
 
 
@@ -953,6 +953,32 @@ class BoardState:
 
         # Side to move bonus
         return score if self.side == WHITE else -score
+    
+    def tensorize_board(self):
+        """
+        Tensorize current board state in a PyTorch tensor (13, 8, 8)
+        12 planes for pieces, 1 plane for the side to move
+        """
+        import torch
+
+        # Initialize an empty array [channels, height, width]
+        data = np.zeros((13, 8, 8), dtype = np.float32)
+
+        for p_idx in range(12):
+            bb = self.bitboards[p_idx]
+
+            # Convert 64 bit integer into 8x8 grid
+            for i in range(64):
+                if bb & (np.uint64(1) << np.uint64(i)):
+                    rank = i // 8
+                    file = i % 8
+                    data[p_idx, rank, file] = 1.0
+
+        # 13th plane
+        if self.side == WHITE:
+            data[12, :, :] = 1.0
+
+        return torch.from_numpy(data)
 
 class MoveHistory:
     """
