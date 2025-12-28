@@ -266,9 +266,6 @@ def set_occupancy(index, bits_in_mask, attacks_mask):
         remaining_mask, square = pop_bit(mask_copy)
         mask_copy = remaining_mask
 
-        # Clear that bit from the mask copy
-        attacks_mask &= attacks_mask - np.uint64(1)
-
         # If the i-th bit of our index is set, set this square in our occupancy
         if index & (1 << i):
             occupancy |= np.uint64(1) << np.uint64(square)

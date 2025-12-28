@@ -329,7 +329,7 @@ def get_rook_attacks(square, occupancy):
     relevant_occupancy = occupancy & generate_rook_mask(square)
 
     # Calculate the magic index using magic multiplication
-    magic_index = (relevant_occupany * ROOK_MAGICS[square]) >> (64 - ROOK_RELEVANT_BITS[square])
+    magic_index = (relevant_occupancy * ROOK_MAGICS[square]) >> (64 - ROOK_RELEVANT_BITS[square])
 
     return rook_attacks[square][magic_index]
 

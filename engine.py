@@ -116,7 +116,7 @@ class BoardState:
 
             # Convert bits to square index
             # bit_length() gives us the position
-            square = least_significant_bit.bit_length() - 1
+            square = int(least_significant_bit).bit_length() - 1
             squares.append(square)
 
             temp &= temp - 1
@@ -898,12 +898,12 @@ class BoardState:
         moves = []
 
         # Gather moves from all pieces
-        moves.extend(self.generate_bishop_moves())
-        moves.extend(self.generate_rook_moves())
-        moves.extend(self.generate_queen_moves())
-        moves.extend(self.generate_king_moves())
-        moves.extend(self.generate_pawn_moves())
-        moves.extend(self.generate_knight_moves())
+        moves.extend(self.generate_bishop_moves(side))
+        moves.extend(self.generate_rook_moves(side))
+        moves.extend(self.generate_queen_moves(side))
+        moves.extend(self.generate_king_moves(side))
+        moves.extend(self.generate_pawn_moves(side))
+        moves.extend(self.generate_knight_moves(side))
 
         # Handle Castling
         # Kingside
@@ -920,7 +920,7 @@ class BoardState:
         # Queenside
         if self.can_castle_queenside(side):
             target_sq = C1 if side == WHITE else C8
-            source_Sq = E1 if side == WHITE else E8
+            source_sq = E1 if side == WHITE else E8
             moves.append(self.encode_move(
                 source = source_sq,
                 target = target_sq,
