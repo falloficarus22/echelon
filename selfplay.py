@@ -130,6 +130,13 @@ class SelfPlayWorker:
                        temperature=temperature)
             best_move, move_probs = mcts.search(board)
             
+            if best_move is None:
+                if verbose:
+                    print("MCTS failed to find a move (possible engine/board corruption)")
+                # Force draw or break
+                outcome = 0.0
+                break
+            
             # Store position and policy
             board_tensor = board.tensorize_board()
             

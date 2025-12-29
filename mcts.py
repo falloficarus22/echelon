@@ -90,6 +90,10 @@ class MCTS:
         move_probs = self._get_move_probabilities(root)
         
         # Select best move based on visit counts
+        if not move_probs:
+            # This can happen if the board is terminal or no simulations were run
+            return None, {}
+            
         best_move = max(move_probs, key=move_probs.get)
         
         return best_move, move_probs
@@ -218,6 +222,8 @@ class MCTS:
         if total_visits == 0:
             # No visits, return uniform
             num_moves = len(root.children)
+            if num_moves == 0:
+                return {}
             return {move: 1.0/num_moves for move in root.children.keys()}
         
         # Apply temperature

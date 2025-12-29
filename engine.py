@@ -88,6 +88,8 @@ class BoardState:
         """
         Combine individual bitboards into global occupancy boards.
         """
+        # Clear existing occupancies
+        self.occupancies.fill(0)
 
         # White piece loop
         for piece in range(6):
