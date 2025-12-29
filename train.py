@@ -10,16 +10,17 @@ For Colab/Kaggle:
 """
 
 import os
+import time
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.utils.data import DataLoader
 import numpy as np
-import argparse
-import time
-from datetime import datetime
+from engine import BoardState
 
 from model import EchelonNet, count_parameters
 from selfplay import SelfPlayWorker, ReplayBuffer
+from evaluator import Evaluator
 from mcts import MCTS
 
 
@@ -240,6 +241,13 @@ class Trainer:
             
             iter_time = time.time() - iter_start
             print(f"      Iteration time: {iter_time:.1f}s")
+            
+            # Evaluation phase
+            print(f"[3/3] Evaluating against baseline (10 games)...")
+            evaluator = Evaluator(self.model, device=self.device)
+            # Use fewer simulations for evaluation to keep it fast
+            elo, results = evaluator.play_match(num_games=10, mcts_simulations=50)
+            print(f"      Estimated Elo: {elo:.0f} (W:{results['win']} L:{results['loss']} D:{results['draw']})")
             
             # Save periodic checkpoint
             if self.iteration % self.config['save_interval'] == 0:

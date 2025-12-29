@@ -979,6 +979,37 @@ class BoardState:
             data[12, :, :] = 1.0
 
         return torch.from_numpy(data)
+
+    def get_greedy_move(self):
+        """
+        Finds the best move using only material evaluation (1-ply search).
+        Used as a baseline for Elo benchmarking.
+        """
+        legal_moves = self.generate_legal_moves(self.side)
+        if not legal_moves:
+            return None
+            
+        best_move = None
+        best_score = -99999
+        
+        # We evaluate from perspective of player to move
+        for move in legal_moves:
+            hist = self.make_move(move)
+            # engine.evaluate() returns score from white's perspective,
+            # but usually engines flip it or we handle it.
+            # Let's assume white = positive, black = negative.
+            score = self.evaluate() 
+            self.unmake_move(move, hist)
+            
+            # Since evaluate() returns score for white, 
+            # if we are black we want to minimize it.
+            actual_score = score if self.side == WHITE else -score
+            
+            if actual_score > best_score:
+                best_score = actual_score
+                best_move = move
+                    
+        return best_move
     
     
     
