@@ -265,8 +265,8 @@ def get_default_config():
     return {
         # Model architecture
         'in_channels': 13,
-        'num_res_blocks': 9,      # ResNet-20 (9 blocks * 2 + 2 = 20 layers)
-        'num_filters': 256,       # 256 filters as you specified
+        'num_res_blocks': 5,      # Reduced for speed
+        'num_filters': 128,       # Reduced from 256 to 128
         
         # Training
         'batch_size': 256,        # Good for T4 with 256 filters
@@ -281,7 +281,7 @@ def get_default_config():
         'min_buffer_size': 1000,
         
         # MCTS
-        'mcts_simulations': 200,  # Reduced for faster self-play
+        'mcts_simulations': 100,  # Lowered for faster self-play
         'temperature_threshold': 30,
         'max_game_length': 512,
         
@@ -298,9 +298,9 @@ def main():
     parser.add_argument('--games_per_iter', type=int, default=25, help='Self-play games per iteration')
     parser.add_argument('--batches_per_iter', type=int, default=100, help='Training batches per iteration')
     parser.add_argument('--batch_size', type=int, default=256, help='Batch size')
-    parser.add_argument('--mcts_sims', type=int, default=200, help='MCTS simulations per move')
-    parser.add_argument('--num_filters', type=int, default=256, help='Number of filters in ResNet')
-    parser.add_argument('--num_blocks', type=int, default=9, help='Number of residual blocks')
+    parser.add_argument('--mcts_sims', type=int, default=100, help='MCTS simulations per move')
+    parser.add_argument('--num_filters', type=int, default=128, help='Number of filters in ResNet')
+    parser.add_argument('--num_blocks', type=int, default=5, help='Number of residual blocks')
     parser.add_argument('--resume', type=str, default=None, help='Path to checkpoint to resume from')
     parser.add_argument('--checkpoint_dir', type=str, default='checkpoints', help='Checkpoint directory')
     

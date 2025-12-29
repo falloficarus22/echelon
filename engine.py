@@ -967,15 +967,14 @@ class BoardState:
 
         for p_idx in range(12):
             bb = self.bitboards[p_idx]
+            # Optimization: Only iterate over bits that are SET
+            while bb:
+                lsb = bb & -bb
+                idx = int(lsb).bit_length() - 1
+                data[p_idx, idx // 8, idx % 8] = 1.0
+                bb &= bb - 1
 
-            # Convert 64 bit integer into 8x8 grid
-            for i in range(64):
-                if bb & (np.uint64(1) << np.uint64(i)):
-                    rank = i // 8
-                    file = i % 8
-                    data[p_idx, rank, file] = 1.0
-
-        # 13th plane
+        # 13th plane (side to move)
         if self.side == WHITE:
             data[12, :, :] = 1.0
 
