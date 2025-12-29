@@ -161,6 +161,7 @@ move_encoder = MoveEncoder()
 def encode_move(move): return move_encoder.encode_move(move)
 def decode_index(index, board_state): return move_encoder.decode_index(index, board_state)
 def create_policy_mask(legal_moves): return move_encoder.create_policy_mask(legal_moves)
+def create_policy_target(move_probs): return move_encoder.create_policy_target(move_probs)
 
 if __name__ == "__main__":
     from engine import BoardState

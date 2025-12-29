@@ -8,6 +8,8 @@ from attacks import (
     set_occupancy,
     count_bits,
 )
+import warnings
+warnings.filterwarnings('ignore', category=RuntimeWarning)
 
 # Pre computed magic numbers for rooks
 ROOK_MAGICS = [

@@ -1,6 +1,7 @@
 from constants import *
 import numpy as np
-
+import warnings
+warnings.filterwarnings('ignore', category=RuntimeWarning)
 
 def mask_king_attack(square):
     """
