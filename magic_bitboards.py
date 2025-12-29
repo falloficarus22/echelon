@@ -303,7 +303,7 @@ def init_magic_tables():
             occupancy = set_occupancy(index, relevant_bits, mask)
 
             # Calculate the magic index for this occupancy
-            magic_index = (occupancy * ROOK_MAGICS[square]) >> (64 - relevant_bits)
+            magic_index = ((occupancy * ROOK_MAGICS[square]) & 0xFFFFFFFFFFFFFFFF) >> (64 - relevant_bits)
 
             # Store the pre-computed attacks for this square
             rook_attacks[square][magic_index] = generate_rook_attacks(square, occupancy)
@@ -317,7 +317,7 @@ def init_magic_tables():
         for index in range(occupancy_variations):
             occupancy = set_occupancy(index, relevant_bits, mask)
 
-            magic_index = (occupancy * BISHOP_MAGICS[square]) >> (64 - relevant_bits)
+            magic_index = ((occupancy * BISHOP_MAGICS[square]) & 0xFFFFFFFFFFFFFFFF) >> (64 - relevant_bits)
             bishop_attacks[square][magic_index] = generate_bishop_attacks(square, occupancy)
 
     print("Magic tables initialized successfully.")
@@ -331,7 +331,7 @@ def get_rook_attacks(square, occupancy):
     relevant_occupancy = occupancy & generate_rook_mask(square)
 
     # Calculate the magic index using magic multiplication
-    magic_index = (relevant_occupancy * ROOK_MAGICS[square]) >> (64 - ROOK_RELEVANT_BITS[square])
+    magic_index = ((relevant_occupancy * ROOK_MAGICS[square]) & 0xFFFFFFFFFFFFFFFF) >> (64 - ROOK_RELEVANT_BITS[square])
 
     return rook_attacks[square][magic_index]
 
@@ -341,7 +341,7 @@ def get_bishop_attacks(square, occupancy):
     Get bishop attacks for a give square and occupancy
     """
     relevant_occupancy = occupancy & generate_bishop_mask(square)
-    magic_index = (relevant_occupancy * BISHOP_MAGICS[square]) >> (
+    magic_index = ((relevant_occupancy * BISHOP_MAGICS[square]) & 0xFFFFFFFFFFFFFFFF) >> (
         64 - BISHOP_RELEVANT_BITS[square]
     )
 

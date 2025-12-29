@@ -142,6 +142,13 @@ def generate_ray_attacks(square, occupancy, direction):
             break
         if direction == WEST and (curr_sq % 8 == 7):
             break
+        
+        # Check for wrap-around (Bishops)
+        if direction in [NORTH_EAST, SOUTH_EAST, NORTH_WEST, SOUTH_WEST]:
+            prev_file = (curr_sq - direction) % 8
+            curr_file = curr_sq % 8
+            if abs(curr_file - prev_file) > 1:
+                break
 
         # For Bishops: Check if the distance to the edge is correct
 
