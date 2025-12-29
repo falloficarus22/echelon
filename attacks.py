@@ -137,26 +137,23 @@ def generate_ray_attacks(square, occupancy, direction):
             break
 
         # Check for wrap-around
-        # For Rooks: Check file/rank consistency
-        if direction == EAST and (curr_sq % 8 == 0):
-            break
-        if direction == WEST and (curr_sq % 8 == 7):
-            break
+        prev_file = (curr_sq - direction) % 8
+        curr_file = curr_sq % 8
         
-        # Check for wrap-around (Bishops)
-        if direction in [NORTH_EAST, SOUTH_EAST, NORTH_WEST, SOUTH_WEST]:
-            prev_file = (curr_sq - direction) % 8
-            curr_file = curr_sq % 8
+        # Diagonal and Horizontal moves must stay within 1 file distance per step
+        if direction in [EAST, WEST, NORTH_EAST, NORTH_WEST, SOUTH_EAST, SOUTH_WEST]:
             if abs(curr_file - prev_file) > 1:
                 break
-
-        # For Bishops: Check if the distance to the edge is correct
+        
+        # Horizontal moves must not stay on the same file
+        if direction in [EAST, WEST] and abs(curr_file - prev_file) == 0:
+            break
 
         # Set the attack bit
-        attacks |= np.uint64(1) << curr_sq
+        attacks |= np.uint64(1) << np.uint64(curr_sq)
 
         # Check for a blocker
-        if occupancy & (np.uint64(1) << curr_sq):
+        if occupancy & (np.uint64(1) << np.uint64(curr_sq)):
             break
 
     return attacks
@@ -207,24 +204,33 @@ def generate_rook_mask(square):
     for direction in directions:
         curr_sq = square
 
-        # Move one step away from the starting square
-        curr_sq += direction
-
-        while 0 <= curr_sq <= 63:
-            attacks |= np.uint64(1) << curr_sq
+        while True:
             curr_sq += direction
-
-            # If the next step is an edge, break
             if not (0 <= curr_sq <= 63):
                 break
-            if direction == EAST and (curr_sq % 8 == 0):
+            
+            # Wrap-around check
+            prev_file = (curr_sq - direction) % 8
+            curr_file = curr_sq % 8
+            if abs(curr_file - prev_file) > 1 and direction not in [NORTH, SOUTH]:
                 break
-            if direction == WEST and (curr_sq % 8 == 7):
+            if abs(curr_file - prev_file) == 0 and direction in [EAST, WEST]:
+                break
+
+            # If the next step is an edge, we add it and then break
+            attacks |= np.uint64(1) << np.uint64(curr_sq)
+            
+            if direction == EAST and (curr_sq % 8 == 7):
+                break
+            if direction == WEST and (curr_sq % 8 == 0):
                 break
             if direction == NORTH and (curr_sq // 8 == 7):
                 break
             if direction == SOUTH and (curr_sq // 8 == 0):
                 break
+            if direction in [NORTH_EAST, NORTH_WEST, SOUTH_EAST, SOUTH_WEST]:
+                if (curr_sq % 8 == 0) or (curr_sq % 8 == 7) or (curr_sq // 8 == 0) or (curr_sq // 8 == 7):
+                    break
 
     return attacks
 
@@ -241,21 +247,28 @@ def generate_bishop_mask(square):
 
     for direction in directions:
         curr_sq = square
-        curr_sq += direction
-
-        while 0 <= curr_sq <= 63:
-            attacks |= np.uint64(1) << curr_sq
+        while True:
             curr_sq += direction
-
-            # Boundary check if ray hits the edge of the board
             if not (0 <= curr_sq <= 63):
                 break
+            
+            # Wrap-around check
+            prev_file = (curr_sq - direction) % 8
+            curr_file = curr_sq % 8
+            if abs(curr_file - prev_file) > 1:
+                break
+            
+            # Mask should exclude edges of the board
+            attacks |= np.uint64(1) << np.uint64(curr_sq)
+            
             if (
                 (curr_sq % 8 == 0)
                 or (curr_sq % 8 == 7)
                 or (curr_sq // 8 == 0)
                 or (curr_sq // 8 == 7)
             ):
+                # Remove from mask if it's an edge square
+                attacks &= ~(np.uint64(1) << np.uint64(curr_sq))
                 break
 
     return attacks
