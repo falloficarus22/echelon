@@ -1,4 +1,7 @@
-__pycache__/
-.ipynb_checkpoints/
-/checkpoints
 *.so
+*.so.*
+cpp/*.so
+cpp/*.so.*
+echelon_cpp*.so
+__pycache__/
+*.pyc
