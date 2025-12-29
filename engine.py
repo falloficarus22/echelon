@@ -152,34 +152,30 @@ class BoardState:
     def encode_move(self, source, target, piece, captured=0, promotion=0, flag=0):
         """
         Encode a move into a 21-bit integer.
-
-        Params:
-        - source: source square (0-63)
-        - target: target square (0-63)
-        - piece: moving piece type
-        - captured: captured piece type (0-5. 0 = no capture)
-        - promotion: promotion piece type (0-4. 0 = no promotion)
-        - flag: special flag (0-7)
-
-        Returns: encoded - move integer
         """
+        # Convert None to 0
+        if captured is None:
+            captured = 0
+        if promotion is None:
+            promotion = 0
+        if flag is None:
+            flag = 0
+
+        # Ensure integers
+        source = int(source)
+        target = int(target)
+        piece = int(piece)
+        captured = int(captured)
+        promotion = int(promotion)
+        flag = int(flag)
+        
         move = 0
-
-        # Source square bits 0-5
         move |= source
-
-        # Target square
         move |= target << 6
-
-        # Piece type
         move |= piece << 12
-
-        # Captured piece
         move |= captured << 15
-
-        # Flags
         move |= flag << 18
-
+        
         return move
 
     def decode_move(self, move):
@@ -314,6 +310,9 @@ class BoardState:
             for target_sq in target_squares:
                 # Get captured piece type
                 captured_piece = self.get_piece_at_square(target_sq, opponent_side)
+
+                if captured_piece is None:
+                    captured_piece = 0
 
                 # Check for promotion capture
                 if (side == WHITE and target_sq >= 56) or (side == BLACK and target_sq <= 7):
@@ -979,6 +978,9 @@ class BoardState:
             data[12, :, :] = 1.0
 
         return torch.from_numpy(data)
+    
+    
+    
 
 class MoveHistory:
     """
