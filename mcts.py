@@ -146,7 +146,7 @@ class MCTS:
         value, policy_logits = self.model.predict(board_tensor)
         
         # Convert policy logits to probabilities
-        policy = torch.exp(policy_logits).numpy()
+        policy = torch.exp(policy_logits).cpu().numpy()
         
         # Mask illegal moves and renormalize
         policy = self._mask_and_normalize_policy(policy, legal_moves)

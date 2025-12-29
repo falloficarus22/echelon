@@ -63,10 +63,13 @@ class EchelonNet(nn.Module):
         Convenience method for prediction during MCTS
         """
         self.eval()
+        # Get model device
+        device = next(self.parameters()).device
+        
         with torch.no_grad():
-            # Add batch dimension
-            x = board_tensor.unsqueeze(0)
-
+            # Add batch dimension and move to device
+            x = board_tensor.unsqueeze(0).to(device)
+            
             # Forward pass
             value, policy_logits = self.forward(x)
 

@@ -79,17 +79,8 @@ class Trainer:
         """Generate self-play games and add to replay buffer."""
         self.model.eval()
         
-        # Move model to CPU for self-play (more stable with MCTS)
-        model_cpu = EchelonNet(
-            in_channels=self.config['in_channels'],
-            num_res_blocks=self.config['num_res_blocks'],
-            num_filters=self.config['num_filters']
-        )
-        model_cpu.load_state_dict(self.model.state_dict())
-        model_cpu.eval()
-        
         worker = SelfPlayWorker(
-            model=model_cpu,
+            model=self.model,
             num_simulations=self.config['mcts_simulations'],
             temperature_threshold=self.config['temperature_threshold'],
             max_game_length=self.config['max_game_length']
