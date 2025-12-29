@@ -92,12 +92,12 @@ def mask_pawn_attack(square, side):
         if not (pawn_bitboard & FILE_H):
             attacks |= pawn_bitboard << np.uint64(9)
     else:
-        # Check if not on file A before capturing to the left
+        # Check if not on file A before capturing to the left (SOUTH_WEST)
         if not (pawn_bitboard & FILE_A):
-            attacks |= pawn_bitboard >> np.uint64(7)
-        # Check if not on File H before capturing to the right
-        if not (pawn_bitboard & FILE_H):
             attacks |= pawn_bitboard >> np.uint64(9)
+        # Check if not on File H before capturing to the right (SOUTH_EAST)
+        if not (pawn_bitboard & FILE_H):
+            attacks |= pawn_bitboard >> np.uint64(7)
 
     return attacks
 
