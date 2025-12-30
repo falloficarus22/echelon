@@ -34,7 +34,7 @@ class FastModelWrapper:
             value, policy_logits = self.model(tensor)
         return value.item(), policy_logits.squeeze(0).cpu().numpy()
 
-def play_game_cpp(model, num_simulations=100, max_moves=200, device="cpu"):
+def play_game_cpp(model, num_simulations=100, max_moves=300, device="cpu"):
     """Play one self-play game using C++ backend"""
     wrapper = FastModelWrapper(model, device=device)
     mcts = echelon_cpp.MCTS(num_simulations=num_simulations)
@@ -51,6 +51,11 @@ def play_game_cpp(model, num_simulations=100, max_moves=200, device="cpu"):
         if not legal_moves:
             outcome = -1.0 if board.is_in_check() else 0.0
             break
+        
+        # Temperature schedule: Explore early, play precise late
+        # Moves 0-30: Temp 1.0 (Exploration)
+        # Moves 30+: Temp 0.1 (Precision / Winning)
+        mcts.temperature = 1.0 if move_num < 30 else 0.1
         
         # Run MCTS search
         move_probs = mcts.search(board, wrapper)
@@ -250,7 +255,7 @@ def main():
         start = time.time()
         
         for game_num in range(5):  # 5 games per iteration
-            examples = play_game_cpp(model, num_simulations=50, max_moves=200, device=device)
+            examples = play_game_cpp(model, num_simulations=100, max_moves=300, device=device)
             replay_buffer.add_examples(examples)
             print(f"  Game {game_num + 1}/5: {len(examples)} positions")
         

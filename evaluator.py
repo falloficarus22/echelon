@@ -97,12 +97,13 @@ class Evaluator:
                     # but we can infer outcome. 
                     # Actually, simply: if it's white's turn (0) and checkmate, Black (1) wins (-1.0)
                     # We can check 'w' in FEN string if side is not exposed
-                    is_white = "w" in board.to_fen().split(" ")[1]
+                    is_white = "w" in str(board).split(" ")[1]
                     return -1.0 if is_white else 1.0
                 return 0.0 # Stalemate
             
             # Determine whose turn it is
-            is_white = "w" in board.to_fen().split(" ")[1]
+            # Use str(board) which returns FEN-like string locally
+            is_white = "w" in str(board).split(" ")[1]
             current_side = 0 if is_white else 1
             
             best_move = None
@@ -127,9 +128,8 @@ class Evaluator:
                 # Simple greedy: Make move, evaluate from opponent perspective, negate
                 for m in legal_moves:
                     # Clone board to test move
-                    # board.copy() might not be available, but we can make/unmake if supported
-                    # or parse FEN. Parsing FEN is safest if copy not exposed.
-                    fen = board.to_fen()
+                    # Use str(board) to get FEN
+                    fen = str(board)
                     temp_board = echelon_cpp.BoardState()
                     temp_board.parse_fen(fen)
                     
