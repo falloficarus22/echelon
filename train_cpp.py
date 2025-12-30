@@ -166,13 +166,20 @@ def load_checkpoint(checkpoint_path, model, optimizer, device):
     """Load model, optimizer state, and replay buffer from checkpoint"""
     print(f"\nLoading checkpoint: {checkpoint_path}")
     
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    # Load to CPU first to keep ReplayBuffer on CPU (save VRAM)
+    checkpoint = torch.load(checkpoint_path, map_location='cpu')
     
-    # Load model weights
+    # Load model weights (handling device mismatch)
     model.load_state_dict(checkpoint['model_state_dict'])
+    model.to(device)
     
     # Load optimizer state
+    # We need to move optimizer state to device since we loaded to CPU
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    for state in optimizer.state.values():
+        for k, v in state.items():
+            if isinstance(v, torch.Tensor):
+                state[k] = v.to(device)
     
     # Load replay buffer if available
     replay_buffer = ReplayBuffer(max_size=50000)
@@ -243,7 +250,7 @@ def main():
         start = time.time()
         
         for game_num in range(5):  # 5 games per iteration
-            examples = play_game_cpp(model, num_simulations=50, max_moves=100, device=device)
+            examples = play_game_cpp(model, num_simulations=50, max_moves=200, device=device)
             replay_buffer.add_examples(examples)
             print(f"  Game {game_num + 1}/5: {len(examples)} positions")
         
