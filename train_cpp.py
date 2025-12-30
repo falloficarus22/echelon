@@ -129,13 +129,17 @@ def find_latest_checkpoint():
     import os
     
     # 1. Look for checkpoints from this script (train_cpp.py)
-    checkpoints = glob.glob("checkpoint_iter_*.pt")
+    # Search in both current directory and checkpoints/ folder
+    checkpoints = glob.glob("checkpoint_iter_*.pt") + glob.glob("checkpoints/checkpoint_iter_*.pt")
+    
     if checkpoints:
         # Extract iteration numbers and find the latest
         iterations = []
         for ckpt in checkpoints:
             try:
-                iter_num = int(ckpt.split("_")[-1].replace(".pt", ""))
+                # Handle paths like "checkpoints/checkpoint_iter_10.pt" correctly
+                filename = os.path.basename(ckpt)
+                iter_num = int(filename.split("_")[-1].replace(".pt", ""))
                 iterations.append((iter_num, ckpt))
             except ValueError:
                 continue
