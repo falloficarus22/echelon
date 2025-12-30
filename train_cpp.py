@@ -126,22 +126,36 @@ def train_iteration(model, optimizer, replay_buffer, batch_size=64, num_batches=
 def find_latest_checkpoint():
     """Find the latest checkpoint file"""
     import glob
+    import os
+    
+    # 1. Look for checkpoints from this script (train_cpp.py)
     checkpoints = glob.glob("checkpoint_iter_*.pt")
-    if not checkpoints:
-        return None
-    
-    # Extract iteration numbers and find the latest
-    iterations = []
-    for ckpt in checkpoints:
+    if checkpoints:
+        # Extract iteration numbers and find the latest
+        iterations = []
+        for ckpt in checkpoints:
+            try:
+                iter_num = int(ckpt.split("_")[-1].replace(".pt", ""))
+                iterations.append((iter_num, ckpt))
+            except ValueError:
+                continue
+        
+        if iterations:
+            iterations.sort(reverse=True)
+            return iterations[0]  # (iteration_number, checkpoint_path)
+
+    # 2. Look for checkpoints from previous python training (train.py) in checkpoints/
+    if os.path.exists("checkpoints/latest.pt"):
+        print("Found legacy checkpoint: checkpoints/latest.pt")
+        # We need to peek at it to get the iteration number, or just guess
         try:
-            iter_num = int(ckpt.split("_")[-1].replace(".pt", ""))
-            iterations.append((iter_num, ckpt))
-        except ValueError:
-            continue
-    
-    if iterations:
-        iterations.sort(reverse=True)
-        return iterations[0]  # (iteration_number, checkpoint_path)
+            # We wrap this in a try-except block just in case
+            ckpt = torch.load("checkpoints/latest.pt", map_location="cpu")
+            if isinstance(ckpt, dict) and 'iteration' in ckpt:
+                return (ckpt['iteration'], "checkpoints/latest.pt")
+        except:
+            pass
+            
     return None
 
 def load_checkpoint(checkpoint_path, model, optimizer, device):
@@ -237,9 +251,9 @@ def main():
         print(f"  Training time: {time.time() - start:.1f}s")
         
         # Save checkpoint
-        if (iteration + 1) % 5 == 0:
-            checkpoint_name = f"checkpoint_iter_{iteration + 1}.pt"
-            save_checkpoint(model, optimizer, replay_buffer, iteration + 1, checkpoint_name)
+        checkpoint_name = f"checkpoint_iter_{iteration + 1}.pt"
+        save_checkpoint(model, optimizer, replay_buffer, iteration + 1, checkpoint_name)
+
 
     
     print("\n" + "=" * 70)
