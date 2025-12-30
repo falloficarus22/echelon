@@ -3,6 +3,10 @@ project(echelon_cpp)
 
 set(CMAKE_CXX_STANDARD 17)
 
+# Directories
+include_directories("-I/root/miniconda3/envs/icarus_env/include/python3.13")
+include_directories("-I/root/miniconda3/envs/icarus_env/lib/python3.13/site-packages/pybind11/include")
+
 # Add source files
 set(SOURCES
     attacks.cpp

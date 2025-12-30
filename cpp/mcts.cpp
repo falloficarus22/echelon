@@ -204,3 +204,22 @@ void MCTS::add_exploration_noise(MCTSNode* root) {
         child->prior_prob = (1 - dirichlet_epsilon) * child->prior_prob + dirichlet_epsilon * (noise[i++] / sum);
     }
 }
+
+PYBIND11_MODULE(echelon_cpp, m) {
+    py::class_<Board>(m, "BoardState")
+        .def(py::init<>())
+        .def("tensorize", &Board::tensorize);
+
+    py::class_<MCTS>(m, "MCTS")
+        .def(py::init<int, float, float, float>(), 
+             py::arg("num_simulations") = 800, 
+             py::arg("c_puct") = 1.0, 
+             py::arg("dirichlet_alpha") = 0.3, 
+             py::arg("dirichlet_epsilon") = 0.25)
+        .def("search", &MCTS::search);
+
+    py::class_<Move>(m, "Move")
+        .def_readonly("source", &Move::from) // Mapped to 'source' for your Python code
+        .def_readonly("target", &Move::to)   // Mapped to 'target' for your Python code
+        .def_readonly("flag", &Move::flag);
+}
