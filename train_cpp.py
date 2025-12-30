@@ -45,7 +45,20 @@ def play_game_cpp(model, num_simulations=100, max_moves=300, device="cpu"):
     positions = []
     policies = []
     
+    # Repetition detection history
+    history = {}
+    
     for move_num in range(max_moves):
+        # Check repetition (3-fold)
+        # Use tensor bytes as hashable key (since str(board) is constant)
+        # Tensor includes piece positions which is sufficient for Anti-Shuffling
+        key = board.tensorize().tobytes()
+        history[key] = history.get(key, 0) + 1
+        
+        if history[key] >= 3:
+            outcome = 0.0 # Draw by repetition
+            break
+            
         # Check game over
         legal_moves = board.generate_legal_moves()
         if not legal_moves:
@@ -55,10 +68,23 @@ def play_game_cpp(model, num_simulations=100, max_moves=300, device="cpu"):
         # Temperature schedule: Explore early, play precise late
         # Moves 0-30: Temp 1.0 (Exploration)
         # Moves 30+: Temp 0.1 (Precision / Winning)
-        mcts.temperature = 1.0 if move_num < 30 else 0.1
+        temp = 1.0 if move_num < 30 else 0.1
         
         # Run MCTS search
         move_probs = mcts.search(board, wrapper)
+        
+        # Apply temperature
+        if temp != 1.0:
+            new_probs = {}
+            sum_val = 0.0
+            for idx, prob in move_probs.items():
+                p = prob ** (1.0 / temp)
+                new_probs[idx] = p
+                sum_val += p
+            
+            # Normalize
+            if sum_val > 0:
+                move_probs = {k: v / sum_val for k, v in new_probs.items()}
         
         # Store training data
         tensor = torch.from_numpy(board.tensorize())

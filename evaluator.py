@@ -92,26 +92,38 @@ class Evaluator:
             if not legal_moves:
                 if board.is_in_check():
                     # If current side is in check and no moves, they lost.
-                    # Current side (board.side) is the loser.
-                    # board.side in CWrapper isn't directly exposed as 0/1 usually, 
-                    # but we can infer outcome. 
-                    # Actually, simply: if it's white's turn (0) and checkmate, Black (1) wins (-1.0)
-                    # We can check 'w' in FEN string if side is not exposed
-                    is_white = "w" in str(board).split(" ")[1]
-                    return -1.0 if is_white else 1.0
+                    # Current side is determined by move_count (even=White/0, odd=Black/1)
+                    current_side = move_count % 2
+                    is_white_turn = (current_side == 0)
+                    
+                    # If White to move and mated -> Black Wins (-1.0)
+                    # If Black to move and mated -> White Wins (1.0)
+                    return -1.0 if is_white_turn else 1.0
                 return 0.0 # Stalemate
             
             # Determine whose turn it is
-            # Use str(board) which returns FEN-like string locally
-            is_white = "w" in str(board).split(" ")[1]
-            current_side = 0 if is_white else 1
+            current_side = move_count % 2
             
             best_move = None
             
             if current_side == nn_side:
                 # NN chooses move using MCTS
-                mcts.temperature = 0.1 # Low temp for play
+                # mcts.temperature = 0.1 is not supported in C++
+                # Application of temp=0.1 manually
                 move_probs = mcts.search(board, self.fast_model)
+                
+                # Apply low temp (0.1) for greedy-ish play
+                temp = 0.1
+                new_probs = {}
+                sum_val = 0.0
+                for idx, prob in move_probs.items():
+                    p = prob ** (1.0 / temp)
+                    new_probs[idx] = p
+                    sum_val += p
+                
+                if sum_val > 0:
+                     move_probs = {k: v / sum_val for k, v in new_probs.items()}
+                
                 best_idx = max(move_probs, key=move_probs.get)
                 
                 # Find move object
@@ -127,26 +139,20 @@ class Evaluator:
                 
                 # Simple greedy: Make move, evaluate from opponent perspective, negate
                 for m in legal_moves:
-                    # Clone board to test move
-                    # Use str(board) to get FEN
-                    fen = str(board)
-                    temp_board = echelon_cpp.BoardState()
-                    temp_board.parse_fen(fen)
+                    # Use make_move / unmake_move for efficiency
+                    hist = board.make_move(m)
                     
-                    temp_board.make_move(m)
+                    # Evaluate returns score for side to move (which is now opponent)
+                    # We want to minimize opponent's score (minimax)
+                    # Or simpler: evaluate() returns static score (White +, Black -)
+                    score = board.evaluate()
                     
-                    # Evaluate for the side that just moved is roughly -1 * eval for new side
-                    # C++ evaluate() usually returns score relative to side to move
-                    # So if I just moved, now it's opponent turn. 
-                    # Opponent wants to maximize their score.
-                    # So I want to minimize their score.
-                    # Or simpler: evaluate() returns static score (positive = good for white)
-                    # Let's assume static evaluation (White +, Black -)
-                    score = temp_board.evaluate()
-                    
-                    # If I am black (1), I want minimal score. If White (0), max.
+                    # If I am Black (1), I want minimal score.
+                    # If I am White (0), I want maximal score.
                     if current_side == 1: # Black
                         score = -score
+                        
+                    board.unmake_move(m, hist)
                         
                     if score > best_score:
                         best_score = score
