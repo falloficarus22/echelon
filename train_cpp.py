@@ -230,8 +230,12 @@ def main():
         print("\n✓ Starting fresh training (no checkpoint found)")
     
     # Training loop
-    total_iterations = 10
-    for iteration in range(start_iteration, total_iterations):
+    iterations_to_run = 10
+    target_iteration = start_iteration + iterations_to_run
+    
+    print(f"Goal: Run for {iterations_to_run} iterations (until iteration {target_iteration})")
+    
+    for iteration in range(start_iteration, target_iteration):
         print(f"\n--- Iteration {iteration + 1} ---")
         
         # Self-play with C++ (FAST!)
