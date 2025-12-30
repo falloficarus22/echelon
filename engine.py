@@ -151,13 +151,16 @@ class BoardState:
 
         return self.get_piece_squares(king_bitboard)[0]
 
-    def encode_move(self, source, target, piece, captured=0, promotion=0, flag=0):
+    def encode_move(self, source, target, piece, captured=None, promotion=0, flag=0):
         """
         Encode a move into a 21-bit integer.
         """
         # Convert None to 0
-        if captured is None:
-            captured = 0
+        # Handle captured piece encoding (0=None, 1=Pawn, etc.)
+        captured_val = 0
+        if captured is not None:
+            captured_val = captured + 1
+
         if promotion is None:
             promotion = 0
         if flag is None:
@@ -167,7 +170,7 @@ class BoardState:
         source = int(source)
         target = int(target)
         piece = int(piece)
-        captured = int(captured)
+        # captured = int(captured) # captured is handled via captured_val
         promotion = int(promotion)
         flag = int(flag)
         
@@ -175,7 +178,7 @@ class BoardState:
         move |= source
         move |= target << 6
         move |= piece << 12
-        move |= captured << 15
+        move |= captured_val << 15
         move |= flag << 18
         
         return move
@@ -211,8 +214,7 @@ class BoardState:
             for target_sq in target_squares:
                 captured_piece = self.get_piece_at_square(target_sq, 1 - side)
 
-                if captured_piece is None:
-                    captured_piece = 0
+
 
                 move = self.encode_move(
                     source=king_sq,
@@ -245,8 +247,7 @@ class BoardState:
             for target_sq in target_squares:
                 captured_piece = self.get_piece_at_square(target_sq, 1 - side)
 
-                if captured_piece is None:
-                    captured_piece = 0
+
 
                 move = self.encode_move(
                     source=knight_sq,
@@ -313,8 +314,7 @@ class BoardState:
                 # Get captured piece type
                 captured_piece = self.get_piece_at_square(target_sq, opponent_side)
 
-                if captured_piece is None:
-                    captured_piece = 0
+
 
                 # Check for promotion capture
                 if (side == WHITE and target_sq >= 56) or (side == BLACK and target_sq <= 7):
@@ -399,7 +399,8 @@ class BoardState:
             
             # Handle capture
             if captured != 0:
-                captured_idx = captured + ((1 - self.side) * 6)
+                captured_type = captured - 1
+                captured_idx = captured_type + ((1 - self.side) * 6)
                 self.bitboards[captured_idx] &= ~(np.uint64(1) << target)
             
             # Place piece on target square
@@ -439,7 +440,8 @@ class BoardState:
             
             # Handle capture on target square
             if captured != 0:
-                captured_idx = captured + ((1 - self.side) * 6)
+                captured_type = captured - 1
+                captured_idx = captured_type + ((1 - self.side) * 6)
                 self.bitboards[captured_idx] &= ~(np.uint64(1) << target)
             
             # Determine promotion piece
@@ -546,7 +548,8 @@ class BoardState:
             
             # Restore captured piece
             if captured != 0:
-                captured_idx = captured + ((1 - self.side) * 6)
+                captured_type = captured - 1
+                captured_idx = captured_type + ((1 - self.side) * 6)
                 self.bitboards[captured_idx] |= (np.uint64(1) << target)
         
         elif flag == MOVE_FLAG_DOUBLE_PAWN_PUSH:
@@ -589,7 +592,8 @@ class BoardState:
             
             # Restore captured piece if there was one
             if captured != 0:
-                captured_idx = captured + ((1 - self.side) * 6)
+                captured_type = captured - 1
+                captured_idx = captured_type + ((1 - self.side) * 6)
                 self.bitboards[captured_idx] |= (np.uint64(1) << target)
         
         elif flag == MOVE_FLAG_CASTLING:
@@ -809,8 +813,7 @@ class BoardState:
             for target_sq in target_squares:
                 captured_piece = self.get_piece_at_square(target_sq, 1 - side)
                 
-                if captured_piece is None:
-                    captured_piece = 0
+
 
                 move = self.encode_move(
                     source = bishop_sq,
@@ -842,8 +845,7 @@ class BoardState:
             for target_sq in target_squares:
                 captured_piece = self.get_piece_at_square(target_sq, 1 - side)
                 
-                if captured_piece is None:
-                    captured_piece = 0
+
 
                 move = self.encode_move(
                     source = rook_sq,
@@ -876,8 +878,7 @@ class BoardState:
             for target_sq in target_squares:
                 captured_piece = self.get_piece_at_square(target_sq, 1 - side)
 
-                if captured_piece is None:
-                    captured_piece = 0
+
                 
                 move = self.encode_move(
                     source = queen_sq,

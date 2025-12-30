@@ -116,7 +116,7 @@ class MoveEncoder():
         if piece is None: return None
         
         captured = board_state.get_piece_at_square(to_sq, 1 - board_state.side)
-        if captured is None: captured = 0
+
         
         flag = MOVE_FLAG_NORMAL
         

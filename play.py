@@ -21,6 +21,8 @@ def print_board(board):
                     if board.bitboards[piece_idx] & (1 << square):
                         piece_char = PIECE_SYMBOLS[piece_idx]
                         break
+                if piece_char != '.':
+                    break
             
             print(f"{piece_char} ", end="")
         print(f" {rank + 1}")
@@ -261,6 +263,36 @@ def watch_engine_play(model_path=None, num_simulations=400):
     print("Game ended.")
 
 
+def find_latest_checkpoint():
+    """Find the latest checkpoint file"""
+    import glob
+    import os
+    
+    # Search in both current directory and checkpoints/ folder
+    checkpoints = glob.glob("checkpoint_iter_*.pt") + glob.glob("checkpoints/checkpoint_iter_*.pt")
+    
+    if checkpoints:
+        # Extract iteration numbers and find the latest
+        iterations = []
+        for ckpt in checkpoints:
+            try:
+                # Handle paths like "checkpoints/checkpoint_iter_10.pt" correctly
+                filename = os.path.basename(ckpt)
+                iter_num = int(filename.split("_")[-1].replace(".pt", ""))
+                iterations.append((iter_num, ckpt))
+            except ValueError:
+                continue
+        
+        if iterations:
+            iterations.sort(reverse=True)
+            return iterations[0][1]  # Return just the path
+
+    if os.path.exists("checkpoints/latest.pt"):
+        return "checkpoints/latest.pt"
+            
+    return None
+
+
 if __name__ == "__main__":
     import sys
     
@@ -273,8 +305,13 @@ if __name__ == "__main__":
     
     choice = input("Select option (1-3): ").strip()
     
-    # You can specify a checkpoint path here
-    model_path = None  # or e.g., 'checkpoints/latest.pt'
+    # Auto-discover latest checkpoint
+    model_path = find_latest_checkpoint()
+    
+    if model_path:
+        print(f"\nFound latest checkpoint: {model_path}")
+    else:
+        print("\nNo checkpoint found. Using untrained model (random play).")
     
     if choice == '1':
         play_against_engine(model_path, num_simulations=400, play_as_white=True)
