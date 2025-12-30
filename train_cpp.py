@@ -95,6 +95,7 @@ def play_game_cpp(model, num_simulations=100, max_moves=200, device="cpu"):
 def train_iteration(model, optimizer, replay_buffer, batch_size=64, num_batches=100):
     """Train on replay buffer"""
     model.train()
+    device = next(model.parameters()).device
     
     total_loss = 0
     for _ in range(num_batches):
@@ -102,6 +103,11 @@ def train_iteration(model, optimizer, replay_buffer, batch_size=64, num_batches=
             break
             
         positions, policies, values = replay_buffer.sample(batch_size)
+        
+        # Move to device (GPU)
+        positions = positions.to(device)
+        policies = policies.to(device)
+        values = values.to(device)
         
         optimizer.zero_grad()
         pred_values, pred_policies = model(positions)
@@ -117,6 +123,69 @@ def train_iteration(model, optimizer, replay_buffer, batch_size=64, num_batches=
     
     return total_loss / num_batches if num_batches > 0 else 0
 
+def find_latest_checkpoint():
+    """Find the latest checkpoint file"""
+    import glob
+    checkpoints = glob.glob("checkpoint_iter_*.pt")
+    if not checkpoints:
+        return None
+    
+    # Extract iteration numbers and find the latest
+    iterations = []
+    for ckpt in checkpoints:
+        try:
+            iter_num = int(ckpt.split("_")[-1].replace(".pt", ""))
+            iterations.append((iter_num, ckpt))
+        except ValueError:
+            continue
+    
+    if iterations:
+        iterations.sort(reverse=True)
+        return iterations[0]  # (iteration_number, checkpoint_path)
+    return None
+
+def load_checkpoint(checkpoint_path, model, optimizer, device):
+    """Load model, optimizer state, and replay buffer from checkpoint"""
+    print(f"\nLoading checkpoint: {checkpoint_path}")
+    
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    
+    # Load model weights
+    model.load_state_dict(checkpoint['model_state_dict'])
+    
+    # Load optimizer state
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    
+    # Load replay buffer if available
+    replay_buffer = ReplayBuffer(max_size=50000)
+    if 'replay_buffer' in checkpoint:
+        replay_buffer.positions = checkpoint['replay_buffer']['positions']
+        replay_buffer.policies = checkpoint['replay_buffer']['policies']
+        replay_buffer.values = checkpoint['replay_buffer']['values']
+        print(f"  Restored replay buffer with {len(replay_buffer)} examples")
+    
+    iteration = checkpoint.get('iteration', 0)
+    
+    print(f"  Resumed from iteration {iteration}")
+    print(f"  Model and optimizer state restored")
+    
+    return iteration, replay_buffer
+
+def save_checkpoint(model, optimizer, replay_buffer, iteration, filename):
+    """Save complete checkpoint including model, optimizer, and replay buffer"""
+    checkpoint = {
+        'iteration': iteration,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'replay_buffer': {
+            'positions': replay_buffer.positions,
+            'policies': replay_buffer.policies,
+            'values': replay_buffer.values
+        }
+    }
+    torch.save(checkpoint, filename)
+    print(f"  Saved checkpoint: {filename}")
+
 def main():
     print("=" * 70)
     print("ECHELON TRAINING WITH C++ BACKEND")
@@ -131,8 +200,21 @@ def main():
     print(f"Device: {device}")
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
     
+    # Check for existing checkpoint to resume from
+    start_iteration = 0
+    latest_checkpoint = find_latest_checkpoint()
+    
+    if latest_checkpoint:
+        iter_num, ckpt_path = latest_checkpoint
+        start_iteration, replay_buffer = load_checkpoint(ckpt_path, model, optimizer, device)
+        start_iteration += 1  # Start from next iteration
+        print(f"\n✓ Resuming training from iteration {start_iteration}")
+    else:
+        print("\n✓ Starting fresh training (no checkpoint found)")
+    
     # Training loop
-    for iteration in range(10):
+    total_iterations = 10
+    for iteration in range(start_iteration, total_iterations):
         print(f"\n--- Iteration {iteration + 1} ---")
         
         # Self-play with C++ (FAST!)
@@ -156,8 +238,9 @@ def main():
         
         # Save checkpoint
         if (iteration + 1) % 5 == 0:
-            torch.save(model.state_dict(), f"checkpoint_iter_{iteration + 1}.pt")
-            print(f"  Saved checkpoint")
+            checkpoint_name = f"checkpoint_iter_{iteration + 1}.pt"
+            save_checkpoint(model, optimizer, replay_buffer, iteration + 1, checkpoint_name)
+
     
     print("\n" + "=" * 70)
     print("Training complete!")
