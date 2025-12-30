@@ -34,9 +34,9 @@ class FastModelWrapper:
             value, policy_logits = self.model(tensor)
         return value.item(), policy_logits.squeeze(0).cpu().numpy()
 
-def play_game_cpp(model, num_simulations=100, max_moves=200):
+def play_game_cpp(model, num_simulations=100, max_moves=200, device="cpu"):
     """Play one self-play game using C++ backend"""
-    wrapper = FastModelWrapper(model)
+    wrapper = FastModelWrapper(model, device=device)
     mcts = echelon_cpp.MCTS(num_simulations=num_simulations)
     
     board = echelon_cpp.BoardState()
@@ -140,7 +140,7 @@ def main():
         start = time.time()
         
         for game_num in range(5):  # 5 games per iteration
-            examples = play_game_cpp(model, num_simulations=50, max_moves=100)
+            examples = play_game_cpp(model, num_simulations=50, max_moves=100, device=device)
             replay_buffer.add_examples(examples)
             print(f"  Game {game_num + 1}/5: {len(examples)} positions")
         
