@@ -173,10 +173,13 @@ def load_checkpoint(checkpoint_path, model, optimizer, device):
     # Load replay buffer if available
     replay_buffer = ReplayBuffer(max_size=50000)
     if 'replay_buffer' in checkpoint:
-        replay_buffer.positions = checkpoint['replay_buffer']['positions']
-        replay_buffer.policies = checkpoint['replay_buffer']['policies']
-        replay_buffer.values = checkpoint['replay_buffer']['values']
-        print(f"  Restored replay buffer with {len(replay_buffer)} examples")
+        # Handle list format (correct)
+        if isinstance(checkpoint['replay_buffer'], list):
+            replay_buffer.buffer.extend(checkpoint['replay_buffer'])
+            print(f"  Restored replay buffer with {len(replay_buffer)} examples")
+        # Handle potential dict format (legacy/incorrect)
+        elif isinstance(checkpoint['replay_buffer'], dict):
+            print("  Warning: Skipping incompatible replay buffer in checkpoint")
     
     iteration = checkpoint.get('iteration', 0)
     
@@ -191,11 +194,7 @@ def save_checkpoint(model, optimizer, replay_buffer, iteration, filename):
         'iteration': iteration,
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
-        'replay_buffer': {
-            'positions': replay_buffer.positions,
-            'policies': replay_buffer.policies,
-            'values': replay_buffer.values
-        }
+        'replay_buffer': list(replay_buffer.buffer)
     }
     torch.save(checkpoint, filename)
     print(f"  Saved checkpoint: {filename}")
