@@ -5,3 +5,4 @@ cpp/*.so.*
 echelon_cpp*.so
 __pycache__/
 *.pyc
+*.ipynb
