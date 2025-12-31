@@ -37,12 +37,12 @@ PYBIND11_MODULE(echelon_cpp, m) {
         Magic::init_all();
     });
 
-    // Move class
+    // Move class - use readable property names
     py::class_<Move>(m, "Move")
         .def(py::init<int, int, MoveFlag>())
-        .def_readwrite("source", &Move::from)
-        .def_readwrite("target", &Move::to)
-        .def_readwrite("flag", &Move::flag);
+        .def_readonly("from_sq", &Move::from)  // Changed from "source"
+        .def_readonly("to_sq", &Move::to)       // Changed from "target"
+        .def_readonly("flag", &Move::flag);
 
     // Board class
     py::class_<Board>(m, "BoardState")
