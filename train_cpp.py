@@ -63,7 +63,8 @@ def play_game_cpp(
 
     for move_num in range(max_moves):
         # repetition guard
-        fen = board.to_fen()
+        # prefer explicit FEN getter from C++ bindings
+        fen = board.to_fen() if hasattr(board, "to_fen") else str(board)
         if fen in seen_positions:
             outcome = 0.0
             break
@@ -89,7 +90,29 @@ def play_game_cpp(
         for idx, prob in move_probs.items():
             policy[idx] = prob
 
-        side = board.side_to_move()
+        # robust side-to-move detection (0 = white, 1 = black)
+        def _get_side(b):
+            for name in ("side_to_move", "side", "to_move", "turn", "white_to_move", "sideToMove"):
+                attr = getattr(b, name, None)
+                if attr is None:
+                    continue
+                try:
+                    v = attr() if callable(attr) else attr
+                except Exception:
+                    continue
+
+                if isinstance(v, (int,)) and v in (0, 1):
+                    return int(v)
+                if isinstance(v, bool):
+                    return int(v)
+                sv = str(v).lower()
+                if sv.startswith("w"):
+                    return 0
+                if sv.startswith("b"):
+                    return 1
+            raise AttributeError("BoardState has no recognizable side-to-move accessor")
+
+        side = _get_side(board)
         positions.append(board_tensor)
         policies.append(policy)
         sides.append(side)

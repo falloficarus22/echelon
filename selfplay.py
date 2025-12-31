@@ -124,8 +124,29 @@ class SelfPlayWorker:
             for idx, prob in move_probs.items():
                 policy[idx] = prob
 
-            # side: 0 = white, 1 = black
-            side = board.side_to_move()
+            # side: 0 = white, 1 = black — use robust accessor
+            def _get_side(b):
+                for name in ("side_to_move", "side", "to_move", "turn", "white_to_move", "sideToMove"):
+                    attr = getattr(b, name, None)
+                    if attr is None:
+                        continue
+                    try:
+                        v = attr() if callable(attr) else attr
+                    except Exception:
+                        continue
+
+                    if isinstance(v, (int,)) and v in (0, 1):
+                        return int(v)
+                    if isinstance(v, bool):
+                        return int(v)
+                    sv = str(v).lower()
+                    if sv.startswith("w"):
+                        return 0
+                    if sv.startswith("b"):
+                        return 1
+                raise AttributeError("BoardState has no recognizable side-to-move accessor")
+
+            side = _get_side(board)
 
             game.add_position(
                 board_tensor,
