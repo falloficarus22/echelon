@@ -1,238 +1,230 @@
 import sys
 import os
+import time
 import numpy as np
 import torch
 from collections import deque
-import time
 
 # Add C++ backend to path
 sys.path.append(os.path.abspath("./cpp"))
 import echelon_cpp
 
+
+# -----------------------------
+# Model → C++ bridge
+# -----------------------------
 class FastModelWrapper:
     """Bridges PyTorch model with C++ MCTS"""
     def __init__(self, model, device="cpu"):
         self.model = model
         self.device = device
-    
+        self.model.eval()
+
     def predict(self, board_tensor):
-        # board_tensor comes from C++ as a [13, 8, 8] numpy array
+        """
+        Called from C++ MCTS
+        board_tensor: np.ndarray [13, 8, 8]
+        """
         tensor = torch.from_numpy(board_tensor).unsqueeze(0).to(self.device)
         with torch.no_grad():
-            policy_logits, value = self.model(tensor)
+            value, policy_logits = self.model(tensor)
         return value.item(), policy_logits.squeeze(0).cpu().numpy()
 
+
+# -----------------------------
+# Self-play game container
+# -----------------------------
+class SelfPlayGame:
+    def __init__(self):
+        self.positions = []
+        self.policies = []
+        self.sides = []
+
+    def add_position(self, position, policy, side):
+        self.positions.append(position)
+        self.policies.append(policy)
+        self.sides.append(side)
+
+    def get_training_data(self, outcome):
+        """
+        outcome is from white's perspective:
+          +1 white win
+          -1 black win
+           0 draw
+        """
+        examples = []
+        for pos, pol, side in zip(self.positions, self.policies, self.sides):
+            # Flip value if black was to move
+            value = outcome if side == 0 else -outcome
+            examples.append({
+                "position": pos,
+                "policy": pol,
+                "value": torch.tensor([[value]], dtype=torch.float32)
+            })
+        return examples
+
+
+# -----------------------------
+# Self-play worker
+# -----------------------------
 class SelfPlayWorker:
-    def __init__(self, model, num_simulations=800, temperature_threshold=30,
-                 max_game_length=512, device="cpu"):
+    def __init__(
+        self,
+        model,
+        num_simulations=800,
+        max_game_length=512,
+        device="cpu",
+    ):
         self.fast_model = FastModelWrapper(model, device)
-        self.num_simulations = num_simulations
-        self.temperature_threshold = temperature_threshold
-        self.max_game_length = max_game_length
         self.mcts = echelon_cpp.MCTS(num_simulations=num_simulations)
-        
+        self.max_game_length = max_game_length
+
     def play_game(self, verbose=False):
         board = echelon_cpp.BoardState()
-        # Initial position
-        board.parse_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
-        
+        board.parse_fen(
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        )
+
         game = SelfPlayGame()
-        move_count = 0
-        
-        while True:
-            move_count += 1
-            
-            # Check for termination using C++
+        seen_positions = set()
+
+        for move_count in range(self.max_game_length):
+            # --- repetition detection (cheap & effective)
+            fen = board.to_fen()
+            if fen in seen_positions:
+                outcome = 0.0
+                break
+            seen_positions.add(fen)
+
             legal_moves = board.generate_legal_moves()
+
+            # --- terminal: no legal moves
             if not legal_moves:
-                # 0 for white, 1 for black (C++ side matches Python)
-                side = 0 if "w" in str(board) else 1 # Simple check for side in C++
-                # In C++ side is an int. Let's use evaluate or a helper if needed, 
-                # but better to check if king is attacked after flip.
-                # For self-play, we can just check if side is in check.
+                # side to move has lost if in check
                 if board.is_in_check():
-                    outcome = -1.0 if board.evaluate() > 0 else 1.0 # Rough but side is baked in
+                    outcome = -1.0
                 else:
                     outcome = 0.0
                 break
 
-            if board.evaluate() > 10000 or board.evaluate() < -10000: # Checkmate detection via evaluation score
-                outcome = 1.0 if board.evaluate() > 0 else -1.0
-                break
+            # --- temperature annealing
+            if move_count < 20:
+                self.mcts.set_temperature(1.0)
+            elif move_count < 40:
+                self.mcts.set_temperature(0.5)
+            else:
+                self.mcts.set_temperature(0.1)
 
-            if move_count >= self.max_game_length:
+            # --- MCTS
+            move_probs = self.mcts.search(board, self.fast_model)
+
+            # --- store training data
+            board_tensor = torch.from_numpy(board.tensorize()).cpu()
+            policy = np.zeros(4672, dtype=np.float32)
+            for idx, prob in move_probs.items():
+                policy[idx] = prob
+
+            # side: 0 = white, 1 = black
+            side = board.side_to_move()
+
+            game.add_position(
+                board_tensor,
+                torch.from_numpy(policy).float().cpu(),
+                side
+            )
+
+            # --- pick move
+            best_idx = max(move_probs, key=move_probs.get)
+
+            # --- execute move
+            moved = False
+            for m in legal_moves:
+                if self.mcts.encode_move(m) == best_idx:
+                    board.make_move(m)
+                    moved = True
+                    break
+
+            if not moved:
+                # should never happen
                 outcome = 0.0
                 break
-            
-            # Run C++ MCTS
-            # Use current temperature settings
-            if move_count < self.temperature_threshold:
-                self.mcts.set_temperature(1.0)
-            else:
-                self.mcts.set_temperature(0.0)
 
-            move_probs = self.mcts.search(board, self.fast_model)
-            
-            # Store data (C++ tensorize is very fast)
-            board_tensor = board.tensorize()
-            policy_array = np.zeros(4672, dtype=np.float32)
-            for idx, prob in move_probs.items():
-                policy_array[idx] = prob
-            
-            # Side is handled internally by BoardState
-            # We need to know who is moving for the outcome mapping
-            current_side = 0 # Need to extract from board
-            
-            game.add_position(torch.from_numpy(board_tensor).cpu(),
-                              torch.from_numpy(policy_array).float().cpu(),
-                              current_side)
-            
-            # Pick best move index based on probs
-            best_idx = max(move_probs, key=move_probs.get)
-            
-            # We need to find the Move object corresponding to this index to call make_move
-            # Since MCTS returns indices, we can look it up in legal_moves
-            # (Note: In a more optimized version, C++ would return the move object too)
-            found = False
-            for m in legal_moves:
-                # We need a way to encode the move in Python or check in C++
-                # For now, let's assume we find it via index matching
-                # Better: make_move should accept index or we match it
-                # I'll add a helper to BoardState to make move by index
-                continue # Placeholder for the logic below
-             
-            # Wait, I'll just use a simpler method: make_move_by_index
-            # I will add this to the C++ wrapper shortly.
-        
-        # Get training examples
-        training_examples = game.get_training_data(outcome)
-        
+            # --- early value-based termination
+            if move_count > 80:
+                value_estimate, _ = self.fast_model.predict(board.tensorize())
+                if abs(value_estimate) > 0.95:
+                    outcome = 1.0 if value_estimate > 0 else -1.0
+                    break
+        else:
+            outcome = 0.0  # draw by length
+
+        examples = game.get_training_data(outcome)
+
         if verbose:
-            print(f"Game finished: {len(training_examples)} positions")
+            print(f"Game finished: {len(examples)} positions")
             print(f"Outcome: {outcome}")
-        
-        return training_examples
-    
+
+        return examples
+
     def generate_games(self, num_games, verbose=False):
-        """
-        Generate multiple self-play games.
-        Returns all training examples.
-        """
         all_examples = []
-        
-        print(f"Generating {num_games} self-play games...")
-        
-        for game_num in range(num_games):
-            start_time = time.time()
-            
-            examples = self.play_game(verbose=verbose and game_num == 0)
+        for i in range(num_games):
+            start = time.time()
+            examples = self.play_game(verbose=(verbose and i == 0))
             all_examples.extend(examples)
-            
-            elapsed = time.time() - start_time
-            
-            if (game_num + 1) % 10 == 0 or game_num == 0:
-                print(f"Game {game_num + 1}/{num_games} completed "
-                      f"({len(examples)} positions, {elapsed:.1f}s)")
-        
-        print(f"Total training examples: {len(all_examples)}")
+            print(
+                f"Game {i+1}/{num_games}: "
+                f"{len(examples)} positions "
+                f"({time.time() - start:.1f}s)"
+            )
         return all_examples
 
 
+# -----------------------------
+# Replay buffer
+# -----------------------------
 class ReplayBuffer:
-    """
-    Stores training examples from self-play games.
-    Implements a circular buffer with maximum size.
-    """
-    def __init__(self, max_size=500000):
+    def __init__(self, max_size=500_000):
         self.buffer = deque(maxlen=max_size)
-        self.max_size = max_size
-    
+
     def add_examples(self, examples):
-        """Add training examples to buffer"""
         for ex in examples:
-            ex['position'] = ex['position'].cpu()
-            ex['policy']   = ex['policy'].cpu()
-            ex['value']    = ex['value'].cpu()
             self.buffer.append(ex)
-    
+
     def sample(self, batch_size):
-        """Sample a random batch of examples"""
-        if len(self.buffer) < batch_size:
-            batch_size = len(self.buffer)
-        
+        batch_size = min(batch_size, len(self.buffer))
         indices = np.random.choice(len(self.buffer), batch_size, replace=False)
         batch = [self.buffer[i] for i in indices]
-        
-        # Convert to tensors
-        positions = torch.stack([ex['position'] for ex in batch])
-        policies = torch.stack([ex['policy'] for ex in batch])
-        values = torch.stack([ex['value'] for ex in batch])
 
-        assert all(not ex['position'].is_cuda for ex in batch), "ReplayBuffer contains CUDA tensors!"
+        positions = torch.stack([b["position"] for b in batch])
+        policies = torch.stack([b["policy"] for b in batch])
+        values = torch.stack([b["value"] for b in batch])
         return positions, policies, values
-    
+
     def __len__(self):
         return len(self.buffer)
-    
-    def save(self, filepath):
-        """Save buffer to disk"""
-        with open(filepath, 'wb') as f:
-            pickle.dump(list(self.buffer), f)
-        print(f"Saved {len(self.buffer)} examples to {filepath}")
-
-    def load(self, filepath):
-        with open(filepath, 'rb') as f:
-            examples = pickle.load(f)
-
-        for ex in examples:
-            ex['position'] = ex['position'].cpu()
-            ex['policy']   = ex['policy'].cpu()
-            ex['value']    = ex['value'].cpu()
-            self.buffer.append(ex)
-
-        print(f"Loaded {len(examples)} examples from {filepath}")
 
 
+# -----------------------------
+# Quick test
+# -----------------------------
 def test_selfplay():
-    """
-    Test self-play system with a short game.
-    """
     from model import EchelonNet
-    
-    print("Testing Self-Play System...")
-    print("=" * 50)
-    
-    # Create model
-    model = EchelonNet(in_channels=13, num_res_blocks=5, num_filters=128)
-    model.eval()
-    
-    # Create self-play worker with reduced simulations for testing
-    worker = SelfPlayWorker(model, num_simulations=50, 
-                           temperature_threshold=10,
-                           max_game_length=100)
-    
-    # Play one game
-    print("\nPlaying test game with 50 MCTS simulations per move...")
+
+    model = EchelonNet(
+        in_channels=13,
+        num_res_blocks=5,
+        num_filters=128
+    )
+
+    worker = SelfPlayWorker(
+        model,
+        num_simulations=50,
+        max_game_length=200,
+    )
+
     examples = worker.play_game(verbose=True)
-    
-    print(f"\n✓ Generated {len(examples)} training examples")
-    
-    # Test replay buffer
-    print("\nTesting Replay Buffer...")
-    buffer = ReplayBuffer(max_size=10000)
-    buffer.add_examples(examples)
-    
-    print(f"Buffer size: {len(buffer)}")
-    
-    # Sample a batch
-    if len(buffer) >= 32:
-        positions, policies, values = buffer.sample(32)
-        print(f"\nSampled batch:")
-        print(f"  Positions shape: {positions.shape}")
-        print(f"  Policies shape: {policies.shape}")
-        print(f"  Values shape: {values.shape}")
-    
-    print("\n✓ Self-play test completed successfully!")
+    print(f"Generated {len(examples)} examples")
 
 
 if __name__ == "__main__":
