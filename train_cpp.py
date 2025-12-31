@@ -1,16 +1,18 @@
 """
 Fast training script using C++ backend for self-play.
-This replaces the slow Python engine with the high-performance C++ implementation.
 """
 
 import sys
 import os
+import time
+import glob
 import torch
 import numpy as np
 from torch import nn, optim
-import time
 
-# Add C++ backend
+# -------------------------------------------------
+# C++ backend
+# -------------------------------------------------
 sys.path.append(os.path.abspath("./cpp"))
 import echelon_cpp
 
@@ -20,280 +22,300 @@ from selfplay import ReplayBuffer
 # Initialize C++ tables once
 echelon_cpp.init()
 
+
+# -------------------------------------------------
+# Model → C++ bridge
+# -------------------------------------------------
 class FastModelWrapper:
-    """Efficient bridge between PyTorch and C++ MCTS"""
     def __init__(self, model, device="cpu"):
         self.model = model
         self.device = device
         self.model.eval()
-    
+
     def predict(self, board_tensor):
-        """Called by C++ MCTS during search"""
         tensor = torch.from_numpy(board_tensor).unsqueeze(0).to(self.device)
         with torch.no_grad():
             value, policy_logits = self.model(tensor)
         return value.item(), policy_logits.squeeze(0).cpu().numpy()
 
-def play_game_cpp(model, num_simulations=100, max_moves=550, device="cpu"):
-    """Play one self-play game using C++ backend"""
-    wrapper = FastModelWrapper(model, device=device)
+
+# -------------------------------------------------
+# Self-play (C++ driven)
+# -------------------------------------------------
+def play_game_cpp(
+    model,
+    num_simulations=100,
+    max_moves=300,
+    device="cpu",
+):
+    wrapper = FastModelWrapper(model, device)
     mcts = echelon_cpp.MCTS(num_simulations=num_simulations)
-    
+
     board = echelon_cpp.BoardState()
-    board.parse_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
-    
+    board.parse_fen(
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    )
+
     positions = []
     policies = []
-    
+    sides = []
+    seen_positions = set()
+
     for move_num in range(max_moves):
-        # Check game over
+        # repetition guard
+        fen = board.to_fen()
+        if fen in seen_positions:
+            outcome = 0.0
+            break
+        seen_positions.add(fen)
+
         legal_moves = board.generate_legal_moves()
         if not legal_moves:
             outcome = -1.0 if board.is_in_check() else 0.0
             break
 
-        if move_num > 80:
-            value_estimate, _ = wrapper.predict(board.tensorize())
-            if value_estimate < -0.95:
-                outcome = -1.0
-                break
-
-        if move_num < 12:
-            mcts.set_temperature(1.0)   # exploration
+        # temperature annealing
+        if move_num < 20:
+            mcts.set_temperature(1.0)
+        elif move_num < 40:
+            mcts.set_temperature(0.5)
         else:
-            mcts.set_temperature(0.0)   # greedy
+            mcts.set_temperature(0.1)
 
-
-        # Run MCTS search
         move_probs = mcts.search(board, wrapper)
-        
-        # Store training data
-        tensor = torch.from_numpy(board.tensorize()).cpu()
+
+        board_tensor = torch.from_numpy(board.tensorize()).cpu()
         policy = np.zeros(4672, dtype=np.float32)
         for idx, prob in move_probs.items():
             policy[idx] = prob
-        
-        positions.append(tensor)
+
+        side = board.side_to_move()
+        positions.append(board_tensor)
         policies.append(policy)
-        
-        # Make best move
+        sides.append(side)
+
         best_idx = max(move_probs, key=move_probs.get)
-        
-        # Find corresponding move and execute it
+
         moved = False
         for m in legal_moves:
             if mcts.encode_move(m) == best_idx:
                 board.make_move(m)
                 moved = True
                 break
-        
-        if not moved:
-            print(f"Warning: Could not find move for index {best_idx}")
-            break
-    else:
-        outcome = 0.0  # Draw by length
-    
-    # Convert to training examples (CPU ONLY)
-    examples = []
-    value = torch.tensor([[outcome]], dtype=torch.float32)
 
-    for pos, pol in zip(positions, policies):
+        if not moved:
+            outcome = 0.0
+            break
+
+        # early value cutoff
+        if move_num > 80:
+            value_estimate, _ = wrapper.predict(board.tensorize())
+            if abs(value_estimate) > 0.95:
+                outcome = 1.0 if value_estimate > 0 else -1.0
+                break
+    else:
+        outcome = 0.0
+
+    # build training examples
+    examples = []
+    for pos, pol, side in zip(positions, policies, sides):
+        value = outcome if side == 0 else -outcome
         examples.append({
-            'position': pos,
-            'policy': torch.from_numpy(pol).float().cpu(),
-            'value': value.clone()
+            "position": pos,
+            "policy": torch.from_numpy(pol).float().cpu(),
+            "value": torch.tensor([[value]], dtype=torch.float32),
         })
 
     return examples
 
 
-def train_iteration(model, optimizer, replay_buffer, batch_size=64, num_batches=100):
-    """Train on replay buffer"""
+# -------------------------------------------------
+# Training step
+# -------------------------------------------------
+def train_iteration(
+    model,
+    optimizer,
+    replay_buffer,
+    batch_size=128,
+    num_batches=500,
+):
     model.train()
     device = next(model.parameters()).device
-    
-    total_loss = 0
-    for _ in range(num_batches):
-        if len(replay_buffer) < batch_size:
-            break
-            
+
+    total_loss = 0.0
+    max_batches = min(num_batches, len(replay_buffer) // batch_size)
+
+    for _ in range(max_batches):
         positions, policies, values = replay_buffer.sample(batch_size)
-        
-        # Move to device (GPU)
+
         positions = positions.to(device)
         policies = policies.to(device)
         values = values.to(device)
-        
+
         optimizer.zero_grad()
         pred_values, pred_policies = model(positions)
-        
+
         value_loss = nn.MSELoss()(pred_values, values)
-        policy_loss = -torch.mean(torch.sum(policies * nn.functional.log_softmax(pred_policies, dim=1), dim=1))
-        
+        policy_loss = -torch.mean(
+            torch.sum(
+                policies * nn.functional.log_softmax(pred_policies, dim=1),
+                dim=1,
+            )
+        )
+
         loss = policy_loss + 0.5 * value_loss
         loss.backward()
         optimizer.step()
-        
+
         total_loss += loss.item()
-    
-    return total_loss / num_batches if num_batches > 0 else 0
 
+    return total_loss / max_batches if max_batches > 0 else 0.0
+
+
+# -------------------------------------------------
+# Checkpoint utils
+# -------------------------------------------------
 def find_latest_checkpoint():
-    """Find the latest checkpoint file"""
-    import glob
-    import os
-    
-    # 1. Look for checkpoints from this script (train_cpp.py)
-    # Search in both current directory and checkpoints/ folder
-    checkpoints = glob.glob("checkpoint_iter_*.pt") + glob.glob("checkpoints/checkpoint_iter_*.pt")
-    
-    if checkpoints:
-        # Extract iteration numbers and find the latest
-        iterations = []
-        for ckpt in checkpoints:
-            try:
-                # Handle paths like "checkpoints/checkpoint_iter_10.pt" correctly
-                filename = os.path.basename(ckpt)
-                iter_num = int(filename.split("_")[-1].replace(".pt", ""))
-                iterations.append((iter_num, ckpt))
-            except ValueError:
-                continue
-        
-        if iterations:
-            iterations.sort(reverse=True)
-            return iterations[0]  # (iteration_number, checkpoint_path)
+    checkpoints = glob.glob("checkpoint_iter_*.pt") + \
+                  glob.glob("checkpoints/checkpoint_iter_*.pt")
 
-    # 2. Look for checkpoints from previous python training (train.py) in checkpoints/
-    if os.path.exists("checkpoints/latest.pt"):
-        print("Found legacy checkpoint: checkpoints/latest.pt")
-        # We need to peek at it to get the iteration number, or just guess
+    best = None
+    for ckpt in checkpoints:
         try:
-            # We wrap this in a try-except block just in case
-            ckpt = torch.load("checkpoints/latest.pt", map_location="cpu")
-            if isinstance(ckpt, dict) and 'iteration' in ckpt:
-                return (ckpt['iteration'], "checkpoints/latest.pt")
-        except:
+            n = int(os.path.basename(ckpt).split("_")[-1].replace(".pt", ""))
+            if best is None or n > best[0]:
+                best = (n, ckpt)
+        except ValueError:
             pass
-            
-    return None
 
-def load_checkpoint(checkpoint_path, model, optimizer, scheduler, device):
-    """Load model, optimizer state, and replay buffer from checkpoint"""
-    print(f"\nLoading checkpoint: {checkpoint_path}")
-    
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    return best
 
-    for ex in replay_buffer.buffer:
-        ex['position'] = ex['position'].cpu()
-        ex['policy']   = ex['policy'].cpu()
-        ex['value']    = ex['value'].cpu()
-    
-    # Load model weights
-    model.load_state_dict(checkpoint['model_state_dict'])
-    
-    # Load optimizer state
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
-    if 'scheduler_state_dict' in checkpoint:
-        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+def load_checkpoint(path, model, optimizer, scheduler, device):
+    print(f"\nLoading checkpoint: {path}")
+    checkpoint = torch.load(path, map_location=device)
 
-    
-    # Load replay buffer if available
-    replay_buffer = ReplayBuffer(max_size=50000)
-    if 'replay_buffer' in checkpoint:
-        # Handle list format (correct)
-        if isinstance(checkpoint['replay_buffer'], list):
-            replay_buffer.buffer.extend(checkpoint['replay_buffer'])
-            print(f"  Restored replay buffer with {len(replay_buffer)} examples")
-        # Handle potential dict format (legacy/incorrect)
-        elif isinstance(checkpoint['replay_buffer'], dict):
-            print("  Warning: Skipping incompatible replay buffer in checkpoint")
-    
-    iteration = checkpoint.get('iteration', 0)
-    
+    model.load_state_dict(checkpoint["model_state_dict"])
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+
+    if "scheduler_state_dict" in checkpoint:
+        scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+
+    replay_buffer = ReplayBuffer(max_size=50_000)
+
+    if "replay_buffer" in checkpoint:
+        for ex in checkpoint["replay_buffer"]:
+            ex["position"] = ex["position"].cpu()
+            ex["policy"] = ex["policy"].cpu()
+            ex["value"] = ex["value"].cpu()
+            replay_buffer.buffer.append(ex)
+
+        print(f"  Restored replay buffer with {len(replay_buffer)} examples")
+
+    iteration = checkpoint.get("iteration", 0)
     print(f"  Resumed from iteration {iteration}")
-    print(f"  Model and optimizer state restored")
-    
+
     return iteration, replay_buffer
 
-def save_checkpoint(model, optimizer, scheduler, replay_buffer, iteration, filename):
-    """Save complete checkpoint including model, optimizer, and replay buffer"""
-    checkpoint = {
-        'iteration': iteration,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'scheduler_state_dict': scheduler.state_dict(),
-        'replay_buffer': list(replay_buffer.buffer)
-    }
-    torch.save(checkpoint, filename)
-    print(f"  Saved checkpoint: {filename}")
 
+def save_checkpoint(
+    model,
+    optimizer,
+    scheduler,
+    replay_buffer,
+    iteration,
+):
+    path = f"checkpoint_iter_{iteration}.pt"
+    torch.save(
+        {
+            "iteration": iteration,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "scheduler_state_dict": scheduler.state_dict(),
+            "replay_buffer": list(replay_buffer.buffer),
+        },
+        path,
+    )
+    print(f"  Saved checkpoint: {path}")
+
+
+# -------------------------------------------------
+# Main
+# -------------------------------------------------
 def main():
     print("=" * 70)
     print("ECHELON TRAINING WITH C++ BACKEND")
     print("=" * 70)
-    
-    # Setup
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = EchelonNet(in_channels=13, num_res_blocks=5, num_filters=128).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    model = EchelonNet(
+        in_channels=13,
+        num_res_blocks=5,
+        num_filters=128,
+    ).to(device)
+
+    optimizer = optim.Adam(model.parameters(), lr=1e-3)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
-    replay_buffer = ReplayBuffer(max_size=50000)
-    
+    replay_buffer = ReplayBuffer(max_size=50_000)
+
     print(f"Device: {device}")
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
-    
-    # Check for existing checkpoint to resume from
+
     start_iteration = 0
-    latest_checkpoint = find_latest_checkpoint()
-    
-    if latest_checkpoint:
-        iter_num, ckpt_path = latest_checkpoint
-        start_iteration, replay_buffer = load_checkpoint(ckpt_path, model, optimizer, scheduler, device)
-        start_iteration += 1  # Start from next iteration
+    latest = find_latest_checkpoint()
+    if latest:
+        start_iteration, replay_buffer = load_checkpoint(
+            latest[1], model, optimizer, scheduler, device
+        )
+        start_iteration += 1
         print(f"\n✓ Resuming training from iteration {start_iteration}")
     else:
-        print("\n✓ Starting fresh training (no checkpoint found)")
-    
-    # Training loop
-    iterations_to_run = 10
-    target_iteration = start_iteration + iterations_to_run
-    
-    print(f"Goal: Run for {iterations_to_run} iterations (until iteration {target_iteration})")
-    
-    for iteration in range(start_iteration, target_iteration):
-        print(f"\n--- Iteration {iteration + 1} ---")
-        
-        # Self-play with C++ (FAST!)
-        print("[1/2] Generating self-play games...")
-        start = time.time()
-        
-        for game_num in range(5):  # 5 games per iteration
-            examples = play_game_cpp(model, num_simulations=50, max_moves=550, device=device)
-            replay_buffer.add_examples(examples)
-            print(f"  Game {game_num + 1}/5: {len(examples)} positions")
-        
-        print(f"  Self-play time: {time.time() - start:.1f}s")
-        print(f"  Buffer size: {len(replay_buffer)}")
-        
-        # Training
-        print("[2/2] Training neural network...")
-        start = time.time()
-        loss = train_iteration(model, optimizer, replay_buffer, batch_size=128, num_batches=500)
-        print(f"  Loss: {loss:.4f}")
-        print(f"  Training time: {time.time() - start:.1f}s")
-        
-        # Save checkpoint
-        checkpoint_name = f"checkpoint_iter_{iteration + 1}.pt"
-        save_checkpoint(model, optimizer, scheduler, replay_buffer, iteration + 1, checkpoint_name)
+        print("\n✓ Starting fresh training")
 
-        # 🔑 STEP LR HERE
+    iterations_to_run = 10
+    for iteration in range(start_iteration, start_iteration + iterations_to_run):
+        print(f"\n--- Iteration {iteration} ---")
+
+        print("[1/2] Generating self-play games...")
+        t0 = time.time()
+        for g in range(5):
+            examples = play_game_cpp(
+                model,
+                num_simulations=50,
+                max_moves=300,
+                device=device,
+            )
+            replay_buffer.add_examples(examples)
+            print(f"  Game {g+1}/5: {len(examples)} positions")
+
+        print(f"  Self-play time: {time.time() - t0:.1f}s")
+        print(f"  Buffer size: {len(replay_buffer)}")
+
+        print("[2/2] Training neural network...")
+        t0 = time.time()
+        loss = train_iteration(
+            model,
+            optimizer,
+            replay_buffer,
+            batch_size=128,
+            num_batches=500,
+        )
+        print(f"  Loss: {loss:.4f}")
+        print(f"  Training time: {time.time() - t0:.1f}s")
+
+        save_checkpoint(
+            model,
+            optimizer,
+            scheduler,
+            replay_buffer,
+            iteration,
+        )
+
+        print(f"  LR before step: {scheduler.get_last_lr()[0]:.6f}")
         scheduler.step()
-        print(f"  LR: {scheduler.get_last_lr()[0]:.6f}")
-            
-        print("\n" + "=" * 70)
-        print("Training complete!")
-        print("=" * 70)
+
+    print("\nTraining complete.")
+
 
 if __name__ == "__main__":
     main()
