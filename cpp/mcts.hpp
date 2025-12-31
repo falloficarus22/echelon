@@ -41,6 +41,7 @@ class MCTS {
 public:
     int num_simulations;
     float c_puct;
+    // Temperature applied ONLY at root move selection
     float temperature;
     float dirichlet_alpha;
     float dirichlet_epsilon;
@@ -54,6 +55,10 @@ public:
     
     // Helper to get moves in the same encoding as Python
     int encode_move_for_nn(Move move);
+
+    void set_temperature(float t) {
+        temperature = t;
+    }
 
 private:
     MCTSNode* select_child(MCTSNode* node);

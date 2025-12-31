@@ -143,7 +143,11 @@ class ReplayBuffer:
     
     def add_examples(self, examples):
         """Add training examples to buffer"""
-        self.buffer.extend(examples)
+        for ex in examples:
+            ex['position'] = ex['position'].cpu()
+            ex['policy']   = ex['policy'].cpu()
+            ex['value']    = ex['value'].cpu()
+            self.buffer.append(ex)
     
     def sample(self, batch_size):
         """Sample a random batch of examples"""
@@ -155,10 +159,8 @@ class ReplayBuffer:
         
         # Convert to tensors
         positions = torch.stack([ex['position'] for ex in batch])
-        policies = torch.tensor(np.array([ex['policy'] for ex in batch]), 
-                               dtype=torch.float32)
-        values = torch.tensor([[ex['value']] for ex in batch], 
-                             dtype=torch.float32)
+        policies = torch.stack([ex['policy'] for ex in batch])
+        values = torch.stack([[ex['value']] for ex in batch])
         
         return positions, policies, values
     

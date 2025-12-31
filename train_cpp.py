@@ -52,17 +52,23 @@ def play_game_cpp(model, num_simulations=100, max_moves=550, device="cpu"):
             outcome = -1.0 if board.is_in_check() else 0.0
             break
 
-        if move_num > 50:
+        if move_num > 80:
             value_estimate, _ = wrapper.predict(board.tensorize())
-            if value_estimate < -0.9:
+            if value_estimate < -0.95:
                 outcome = -1.0
                 break
+
+        if move_num < 12:
+            mcts.set_temperature(1.0)   # exploration
+        else:
+            mcts.set_temperature(0.0)   # greedy
+
 
         # Run MCTS search
         move_probs = mcts.search(board, wrapper)
         
         # Store training data
-        tensor = torch.from_numpy(board.tensorize())
+        tensor = torch.from_numpy(board.tensorize()).cpu()
         policy = np.zeros(4672, dtype=np.float32)
         for idx, prob in move_probs.items():
             policy[idx] = prob
@@ -87,16 +93,19 @@ def play_game_cpp(model, num_simulations=100, max_moves=550, device="cpu"):
     else:
         outcome = 0.0  # Draw by length
     
-    # Convert to training examples
+    # Convert to training examples (CPU ONLY)
     examples = []
+    value = torch.tensor([[outcome]], dtype=torch.float32)
+
     for pos, pol in zip(positions, policies):
         examples.append({
             'position': pos,
-            'policy': torch.tensor(pol),
-            'value': torch.tensor([[outcome]], dtype=torch.float32)
+            'policy': torch.from_numpy(pol).float().cpu(),
+            'value': value.clone()
         })
-    
+
     return examples
+
 
 def train_iteration(model, optimizer, replay_buffer, batch_size=64, num_batches=100):
     """Train on replay buffer"""

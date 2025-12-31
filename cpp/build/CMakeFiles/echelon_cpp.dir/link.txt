@@ -1,1 +1,0 @@
-/usr/bin/c++ CMakeFiles/echelon_cpp.dir/attacks.cpp.o CMakeFiles/echelon_cpp.dir/magic.cpp.o CMakeFiles/echelon_cpp.dir/board.cpp.o CMakeFiles/echelon_cpp.dir/mcts.cpp.o CMakeFiles/echelon_cpp.dir/main.cpp.o -o echelon_cpp 

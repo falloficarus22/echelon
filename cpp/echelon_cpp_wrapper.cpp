@@ -82,5 +82,6 @@ PYBIND11_MODULE(echelon_cpp, m) {
              py::arg("dirichlet_alpha") = 0.3,
              py::arg("dirichlet_epsilon") = 0.25)
         .def("search", &MCTS::search)
-        .def("encode_move", &MCTS::encode_move_for_nn);
+        .def("encode_move", &MCTS::encode_move_for_nn)
+        .def("set_temperature", &MCTS::set_temperature);
 }
