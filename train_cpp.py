@@ -183,6 +183,12 @@ def load_checkpoint(checkpoint_path, model, optimizer, scheduler, device):
     
     checkpoint = torch.load(checkpoint_path, map_location=device)
     
+    for ex in replay_buffer.buffer:
+        ex['position'] = ex['position'].cpu()
+        ex['policy']   = ex['policy'].cpu()
+        ex['value']    = ex['value'].cpu()
+
+    
     # Load model weights
     model.load_state_dict(checkpoint['model_state_dict'])
     

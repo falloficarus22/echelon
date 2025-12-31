@@ -66,7 +66,11 @@ class SelfPlayWorker:
             
             # Run C++ MCTS
             # Use current temperature settings
-            self.mcts.temperature = 1.0 if move_count < self.temperature_threshold else 0.1
+            if move_count < self.temperature_threshold:
+                self.mcts.set_temperature(1.0)
+            else:
+                self.mcts.set_temperature(0.0)
+
             move_probs = self.mcts.search(board, self.fast_model)
             
             # Store data (C++ tensorize is very fast)
@@ -79,7 +83,9 @@ class SelfPlayWorker:
             # We need to know who is moving for the outcome mapping
             current_side = 0 # Need to extract from board
             
-            game.add_position(torch.from_numpy(board_tensor), policy_array, current_side)
+            game.add_position(torch.from_numpy(board_tensor).cpu(),
+                              torch.from_numpy(policy_array).float().cpu(),
+                              current_side)
             
             # Pick best move index based on probs
             best_idx = max(move_probs, key=move_probs.get)
@@ -160,8 +166,9 @@ class ReplayBuffer:
         # Convert to tensors
         positions = torch.stack([ex['position'] for ex in batch])
         policies = torch.stack([ex['policy'] for ex in batch])
-        values = torch.stack([[ex['value']] for ex in batch])
-        
+        values = torch.stack([ex['value'] for ex in batch])
+
+        assert all(not ex['position'].is_cuda for ex in batch), "ReplayBuffer contains CUDA tensors!"
         return positions, policies, values
     
     def __len__(self):
@@ -172,12 +179,17 @@ class ReplayBuffer:
         with open(filepath, 'wb') as f:
             pickle.dump(list(self.buffer), f)
         print(f"Saved {len(self.buffer)} examples to {filepath}")
-    
+
     def load(self, filepath):
-        """Load buffer from disk"""
         with open(filepath, 'rb') as f:
             examples = pickle.load(f)
-        self.buffer.extend(examples)
+
+        for ex in examples:
+            ex['position'] = ex['position'].cpu()
+            ex['policy']   = ex['policy'].cpu()
+            ex['value']    = ex['value'].cpu()
+            self.buffer.append(ex)
+
         print(f"Loaded {len(examples)} examples from {filepath}")
 
 
