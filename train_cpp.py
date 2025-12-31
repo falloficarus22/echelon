@@ -34,7 +34,7 @@ class FastModelWrapper:
             value, policy_logits = self.model(tensor)
         return value.item(), policy_logits.squeeze(0).cpu().numpy()
 
-def play_game_cpp(model, num_simulations=100, max_moves=300, device="cpu"):
+def play_game_cpp(model, num_simulations=100, max_moves=550, device="cpu"):
     """Play one self-play game using C++ backend"""
     wrapper = FastModelWrapper(model, device=device)
     mcts = echelon_cpp.MCTS(num_simulations=num_simulations)
@@ -45,46 +45,15 @@ def play_game_cpp(model, num_simulations=100, max_moves=300, device="cpu"):
     positions = []
     policies = []
     
-    # Repetition detection history
-    history = {}
-    
     for move_num in range(max_moves):
-        # Check repetition (3-fold)
-        # Use tensor bytes as hashable key (since str(board) is constant)
-        # Tensor includes piece positions which is sufficient for Anti-Shuffling
-        key = board.tensorize().tobytes()
-        history[key] = history.get(key, 0) + 1
-        
-        if history[key] >= 3:
-            outcome = 0.0 # Draw by repetition
-            break
-            
         # Check game over
         legal_moves = board.generate_legal_moves()
         if not legal_moves:
             outcome = -1.0 if board.is_in_check() else 0.0
             break
         
-        # Temperature schedule: Explore early, play precise late
-        # Moves 0-30: Temp 1.0 (Exploration)
-        # Moves 30+: Temp 0.1 (Precision / Winning)
-        temp = 1.0 if move_num < 30 else 0.1
-        
         # Run MCTS search
         move_probs = mcts.search(board, wrapper)
-        
-        # Apply temperature
-        if temp != 1.0:
-            new_probs = {}
-            sum_val = 0.0
-            for idx, prob in move_probs.items():
-                p = prob ** (1.0 / temp)
-                new_probs[idx] = p
-                sum_val += p
-            
-            # Normalize
-            if sum_val > 0:
-                move_probs = {k: v / sum_val for k, v in new_probs.items()}
         
         # Store training data
         tensor = torch.from_numpy(board.tensorize())
@@ -146,7 +115,7 @@ def train_iteration(model, optimizer, replay_buffer, batch_size=64, num_batches=
         value_loss = nn.MSELoss()(pred_values, values)
         policy_loss = -torch.mean(torch.sum(policies * nn.functional.log_softmax(pred_policies, dim=1), dim=1))
         
-        loss = value_loss + policy_loss
+        loss = policy_loss + 0.5 * value_loss
         loss.backward()
         optimizer.step()
         
@@ -193,24 +162,21 @@ def find_latest_checkpoint():
             
     return None
 
-def load_checkpoint(checkpoint_path, model, optimizer, device):
+def load_checkpoint(checkpoint_path, model, optimizer, scheduler, device):
     """Load model, optimizer state, and replay buffer from checkpoint"""
     print(f"\nLoading checkpoint: {checkpoint_path}")
     
-    # Load to CPU first to keep ReplayBuffer on CPU (save VRAM)
-    checkpoint = torch.load(checkpoint_path, map_location='cpu')
+    checkpoint = torch.load(checkpoint_path, map_location=device)
     
-    # Load model weights (handling device mismatch)
+    # Load model weights
     model.load_state_dict(checkpoint['model_state_dict'])
-    model.to(device)
     
     # Load optimizer state
-    # We need to move optimizer state to device since we loaded to CPU
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    for state in optimizer.state.values():
-        for k, v in state.items():
-            if isinstance(v, torch.Tensor):
-                state[k] = v.to(device)
+
+    if 'scheduler_state_dict' in checkpoint:
+        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+
     
     # Load replay buffer if available
     replay_buffer = ReplayBuffer(max_size=50000)
@@ -230,12 +196,13 @@ def load_checkpoint(checkpoint_path, model, optimizer, device):
     
     return iteration, replay_buffer
 
-def save_checkpoint(model, optimizer, replay_buffer, iteration, filename):
+def save_checkpoint(model, optimizer, scheduler, replay_buffer, iteration, filename):
     """Save complete checkpoint including model, optimizer, and replay buffer"""
     checkpoint = {
         'iteration': iteration,
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
+        'scheduler_state_dict': scheduler.state_dict(),
         'replay_buffer': list(replay_buffer.buffer)
     }
     torch.save(checkpoint, filename)
@@ -250,6 +217,7 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = EchelonNet(in_channels=13, num_res_blocks=5, num_filters=128).to(device)
     optimizer = optim.Adam(model.parameters(), lr=0.001)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
     replay_buffer = ReplayBuffer(max_size=50000)
     
     print(f"Device: {device}")
@@ -261,7 +229,7 @@ def main():
     
     if latest_checkpoint:
         iter_num, ckpt_path = latest_checkpoint
-        start_iteration, replay_buffer = load_checkpoint(ckpt_path, model, optimizer, device)
+        start_iteration, replay_buffer = load_checkpoint(ckpt_path, model, optimizer, scheduler, device)
         start_iteration += 1  # Start from next iteration
         print(f"\n✓ Resuming training from iteration {start_iteration}")
     else:
@@ -281,7 +249,7 @@ def main():
         start = time.time()
         
         for game_num in range(5):  # 5 games per iteration
-            examples = play_game_cpp(model, num_simulations=100, max_moves=300, device=device)
+            examples = play_game_cpp(model, num_simulations=50, max_moves=550, device=device)
             replay_buffer.add_examples(examples)
             print(f"  Game {game_num + 1}/5: {len(examples)} positions")
         
@@ -291,19 +259,21 @@ def main():
         # Training
         print("[2/2] Training neural network...")
         start = time.time()
-        loss = train_iteration(model, optimizer, replay_buffer, batch_size=32, num_batches=50)
+        loss = train_iteration(model, optimizer, replay_buffer, batch_size=128, num_batches=500)
         print(f"  Loss: {loss:.4f}")
         print(f"  Training time: {time.time() - start:.1f}s")
         
         # Save checkpoint
         checkpoint_name = f"checkpoint_iter_{iteration + 1}.pt"
-        save_checkpoint(model, optimizer, replay_buffer, iteration + 1, checkpoint_name)
+        save_checkpoint(model, optimizer, scheduler, replay_buffer, iteration + 1, checkpoint_name)
 
-
-    
-    print("\n" + "=" * 70)
-    print("Training complete!")
-    print("=" * 70)
+        # 🔑 STEP LR HERE
+        scheduler.step()
+        print(f"  LR: {scheduler.get_last_lr()[0]:.6f}")
+            
+        print("\n" + "=" * 70)
+        print("Training complete!")
+        print("=" * 70)
 
 if __name__ == "__main__":
     main()
