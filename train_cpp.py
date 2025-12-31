@@ -51,7 +51,13 @@ def play_game_cpp(model, num_simulations=100, max_moves=550, device="cpu"):
         if not legal_moves:
             outcome = -1.0 if board.is_in_check() else 0.0
             break
-        
+
+        if move_num > 50:
+            value_estimate, _ = wrapper.predict(board.tensorize())
+            if value_estimate < -0.9:
+                outcome = -1.0
+                break
+
         # Run MCTS search
         move_probs = mcts.search(board, wrapper)
         
