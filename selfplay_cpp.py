@@ -19,11 +19,16 @@ START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
 
 class FastModelWrapper:
-    """Bridges PyTorch model with C++ MCTS"""
+    """Bridges PyTorch model with C++ MCTS with caching"""
     def __init__(self, model, device="cpu"):
         self.model = model
         self.device = device
         self.model.eval()
+        
+        # Cache for position evaluations
+        self.cache = {}
+        self.cache_hits = 0
+        self.cache_misses = 0
         
         # Test the model output format once
         test_input = torch.zeros(1, 13, 8, 8).to(device)
@@ -44,6 +49,16 @@ class FastModelWrapper:
     
     def predict(self, board_tensor):
         # board_tensor comes from C++ as [13, 8, 8] numpy array
+        
+        # Create cache key from board tensor
+        cache_key = board_tensor.tobytes()
+        
+        if cache_key in self.cache:
+            self.cache_hits += 1
+            return self.cache[cache_key]
+        
+        self.cache_misses += 1
+        
         tensor = torch.from_numpy(board_tensor).unsqueeze(0).to(self.device)
         with torch.no_grad():
             out1, out2 = self.model(tensor)
@@ -55,7 +70,25 @@ class FastModelWrapper:
             policy = out1.squeeze(0).cpu().numpy()
             value = out2.squeeze().item()
         
+        # Cache the result
+        self.cache[cache_key] = (value, policy)
+        
+        # Limit cache size to prevent memory issues
+        if len(self.cache) > 10000:
+            # Remove oldest 20% of entries
+            keys_to_remove = list(self.cache.keys())[:2000]
+            for k in keys_to_remove:
+                del self.cache[k]
+        
         return value, policy
+    
+    def print_stats(self):
+        total = self.cache_hits + self.cache_misses
+        if total > 0:
+            hit_rate = 100 * self.cache_hits / total
+            print(f"Cache stats: {self.cache_hits}/{total} hits ({hit_rate:.1f}%), size={len(self.cache)}")
+        self.cache_hits = 0
+        self.cache_misses = 0
 
 
 class CPPSelfPlayWorker:
@@ -72,9 +105,12 @@ class CPPSelfPlayWorker:
     
     def generate_games(self, num_games, verbose=False):
         """Generate self-play games using C++ engine"""
+        import time
         all_examples = []
         
         for game_idx in range(int(num_games)):
+            game_start = time.time()
+            
             # Create new board for each game
             board = echelon_cpp.BoardState()
             board.parse_fen(START_FEN)
@@ -170,9 +206,12 @@ class CPPSelfPlayWorker:
                 
                 all_examples.append((pos, policy, value))
             
-            if verbose:
+            game_time = time.time() - game_start
+            
+            if verbose or True:  # Always show progress
                 outcome = "Draw" if result_value == 0.0 else f"{'White' if winner == 0 else 'Black'} wins"
-                print(f"Game {game_idx+1}/{num_games}: {move_count} moves, {len(game_history)} positions, {outcome}")
+                print(f"  Game {game_idx+1}/{num_games}: {move_count} moves, {len(game_history)} positions, {outcome} ({game_time:.1f}s)")
+                self.wrapper.print_stats()
         
         return all_examples
 
