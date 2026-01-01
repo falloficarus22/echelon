@@ -23,7 +23,36 @@ class BoardState:
         self.en_passant_sq = -1  # -1 means no en-passant square available
         self.castle_rights = 0
         self.halfmove_clock = 0
+        self.position_history = []
 
+    def get_position_hash(self):
+        """Generate a simple hash of the current position for repetition detection."""
+        # Hash based on: bitboards, side to move, castling rights, en passant
+        hash_data = (
+            tuple(self.bitboards.tolist()),
+            self.side,
+            self.castle_rights,
+            self.en_passant_sq
+        )
+        return hash(hash_data)
+    
+    def is_threefold_repetition(self):
+        """Check if current position has occurred 3+ times."""
+        if len(self.position_history) < 8:  # Need at least 4 moves for repetition
+            return False
+        
+        current_hash = self.get_position_hash()
+        count = self.position_history.count(current_hash)
+        return count >= 2  # Current position + 2 previous = 3 total
+    
+    def is_fifty_move_rule(self):
+        """Check if 50-move rule applies (100 half-moves)."""
+        return self.halfmove_clock >= 100
+    
+    def is_draw(self):
+        """Check if position is a draw by repetition or 50-move rule."""
+        return self.is_threefold_repetition() or self.is_fifty_move_rule()
+    
     def parse_fen(self, fen):
         """
         Resets the board and loads the state from a FEN string.
@@ -368,6 +397,7 @@ class BoardState:
         history.en_passant_sq = self.en_passant_sq
         history.castle_rights = self.castle_rights
         history.halfmove_clock = self.halfmove_clock if hasattr(self, 'halfmove_clock') else 0
+        self.position_history.append(self.get_position_hash())
         
         # Decode move
         decoded = self.decode_move(move)
@@ -524,6 +554,9 @@ class BoardState:
             move: The encoded move to unmake
             history: MoveHistory object returned by make_move()
         """
+        if self.position_history:
+            self.position_history.pop()
+
         # Switch side back first
         self.side = 1 - self.side
         
@@ -711,6 +744,9 @@ class BoardState:
         
         This is the function you'll use in your search algorithm.
         """
+        if self.is_draw():
+            return []
+        
         pseudo_legal_moves = self.generate_all_moves(side)
         legal_moves = []
         

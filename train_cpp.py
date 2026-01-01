@@ -29,6 +29,7 @@ def main():
     config['num_filters'] = args.num_filters
     config['num_res_blocks'] = args.num_blocks
     config['checkpoint_dir'] = args.checkpoint_dir
+    config['min_buffer_size'] = 50000
 
     # Slightly larger defaults for C++-accelerated training
     config['mcts_simulations'] = max(config.get('mcts_simulations', 100), 200)

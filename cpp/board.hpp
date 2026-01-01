@@ -44,6 +44,7 @@ public:
     int en_passant_sq;
     int castle_rights;
     int halfmove_clock;
+    std::vector<U64> position_history;
 
     Board();
     
@@ -51,6 +52,11 @@ public:
     void parse_fen(const std::string &fen);
     void update_occupancies();
     void update_occupancies_fixed();
+
+    U64 get_position_hash() const;
+    bool is_threefold_repetition() const;
+    bool is_fifty_move_rule() const;
+    bool is_draw() const;
     
     // Move logic
     History make_move(Move move);

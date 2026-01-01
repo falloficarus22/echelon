@@ -123,10 +123,12 @@ class Evaluator:
                     # If Black to move and mated -> White Wins (1.0)
                     return -1.0 if is_white_turn else 1.0
                 return 0.0 # Stalemate
+
+            if hasattr(board, 'halfmove_clock') and board.halfmove_clock >= 100:
+                return 0.0
             
             # Determine whose turn it is
             current_side = move_count % 2
-            
             best_move = None
             
             if current_side == nn_side:

@@ -307,7 +307,7 @@ def get_default_config():
         
         # Replay buffer
         'buffer_size': 500000,
-        'min_buffer_size': 1000,
+        'min_buffer_size': 50000,
         
         # MCTS
         'mcts_simulations': 100,  # Lowered for faster self-play

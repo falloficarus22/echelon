@@ -99,7 +99,57 @@ int Board::get_piece_at(int square) const {
     return -1;
 }
 
+U64 Board::get_position_hash() const {
+    // Simple Zobrist-like hash combining all position features
+    U64 hash = 0ULL;
+    
+    // Hash bitboards
+    for (int i = 0; i < 12; i++) {
+        hash ^= bitboards[i] * (i + 1);
+    }
+    
+    // Hash side to move
+    hash ^= (U64)side << 60;
+    
+    // Hash castling rights
+    hash ^= (U64)castle_rights << 56;
+    
+    // Hash en passant
+    if (en_passant_sq != -1) {
+        hash ^= (U64)(en_passant_sq + 1) << 48;
+    }
+    
+    return hash;
+}
+
+bool Board::is_threefold_repetition() const {
+    if (position_history.size() < 8) {
+        return false;  // Need at least 4 moves for repetition
+    }
+    
+    U64 current_hash = get_position_hash();
+    int count = 0;
+    
+    // Count how many times this position appeared
+    for (U64 hash : position_history) {
+        if (hash == current_hash) {
+            count++;
+        }
+    }
+    
+    return count >= 2;  // Current + 2 previous = 3 total
+}
+
+bool Board::is_fifty_move_rule() const {
+    return halfmove_clock >= 100;
+}
+
+bool Board::is_draw() const {
+    return is_threefold_repetition() || is_fifty_move_rule();
+}
+
 History Board::make_move(Move move) {
+    position_history.push_back(get_position_hash());
     History hist;
     hist.en_passant_sq = en_passant_sq;
     hist.castle_rights = castle_rights;
@@ -174,6 +224,10 @@ History Board::make_move(Move move) {
 }
 
 void Board::unmake_move(Move move, const History &hist) {
+    if (!position_history.empty()) {
+        position_history.pop_back();
+    }
+
     side = (side == WHITE) ? BLACK : WHITE;
     
     int piece = get_piece_at(move.to);
