@@ -26,7 +26,7 @@ class FastModelWrapper:
         tensor = torch.from_numpy(board_tensor).unsqueeze(0).to(self.device)
         with torch.no_grad():
             policy_logits, value = self.model(tensor)
-        return value.item(), policy_logits.squeeze(0).cpu().numpy()
+        return value.squeeze().item(), policy_logits.squeeze(0).cpu().numpy()
 
 class Evaluator:
     """
