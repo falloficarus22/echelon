@@ -20,13 +20,36 @@ class FastModelWrapper:
     def __init__(self, model, device="cpu"):
         self.model = model
         self.device = device
+        self.model.eval()
+        
+        # Test model output order once
+        test_input = torch.zeros(1, 13, 8, 8).to(device)
+        with torch.no_grad():
+            out1, out2 = self.model(test_input)
+        
+        # Determine which output is value and which is policy
+        if out1.shape[-1] == 1 or out1.numel() == 1:
+            self.value_first = True  # Model returns (value, policy)
+        elif out2.shape[-1] == 1 or out2.numel() == 1:
+            self.value_first = False  # Model returns (policy, value)
+        else:
+            raise RuntimeError(f"Cannot determine output order from shapes: {out1.shape}, {out2.shape}")
     
     def predict(self, board_tensor):
         # board_tensor comes from C++ as a [13, 8, 8] numpy array
         tensor = torch.from_numpy(board_tensor).unsqueeze(0).to(self.device)
         with torch.no_grad():
-            policy_logits, value = self.model(tensor)
-        return value.squeeze().item(), policy_logits.squeeze(0).cpu().numpy()
+            out1, out2 = self.model(tensor)
+        
+        # Extract value and policy based on detected order
+        if self.value_first:
+            value = out1.squeeze().item()
+            policy_logits = out2.squeeze(0).cpu().numpy()
+        else:
+            policy_logits = out1.squeeze(0).cpu().numpy()
+            value = out2.squeeze().item()
+        
+        return value, policy_logits
 
 class Evaluator:
     """
@@ -108,8 +131,6 @@ class Evaluator:
             
             if current_side == nn_side:
                 # NN chooses move using MCTS
-                # mcts.temperature = 0.1 is not supported in C++
-                # Application of temp=0.1 manually
                 move_probs = mcts.search(board, self.fast_model)
                 
                 # Apply low temp (0.1) for greedy-ish play
