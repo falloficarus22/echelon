@@ -306,8 +306,8 @@ def get_default_config():
         'lr_gamma': 0.5,
         
         # Replay buffer
-        'buffer_size': 500000,
-        'min_buffer_size': 50000,
+        'buffer_size': 50000,
+        'min_buffer_size': 25000,
         
         # MCTS
         'mcts_simulations': 100,  # Lowered for faster self-play
@@ -342,6 +342,7 @@ def main():
     config['num_filters'] = args.num_filters
     config['num_res_blocks'] = args.num_blocks
     config['checkpoint_dir'] = args.checkpoint_dir
+    config['min_buffer_size'] = 25000
     
     # Create trainer
     trainer = Trainer(config)
