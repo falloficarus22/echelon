@@ -1,27 +1,29 @@
-"""
-Echelon Chess Engine - Training Script
-Optimized for Google Colab T4 and Kaggle Free Tier GPUs
-
-Usage:
-    python train.py --iterations 100 --games_per_iter 50
-    
-For Colab/Kaggle:
-    !python train.py --iterations 50 --games_per_iter 25 --batch_size 256
-"""
+# At the top of train.py, replace the import section with:
 
 import os
+import sys
 import time
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 import numpy as np
-from engine import BoardState
+import argparse
 
 from model import EchelonNet, count_parameters
-from selfplay import SelfPlayWorker, ReplayBuffer
+from selfplay import ReplayBuffer  # Keep ReplayBuffer from selfplay.py
 from evaluator import Evaluator
-from mcts import MCTS
+
+# Try to use C++ accelerated self-play
+try:
+    sys.path.append(os.path.abspath("./cpp"))
+    import echelon_cpp
+    echelon_cpp.init()
+    from selfplay_cpp import SelfPlayWorker  # Use C++ version
+    print("✓ Using C++ accelerated self-play")
+except ImportError:
+    from selfplay import SelfPlayWorker  # Fallback to Python
+    print("⚠ Using slow Python self-play (C++ backend not available)")
 
 
 class Trainer:
@@ -188,14 +190,33 @@ class Trainer:
         print(f"Loading checkpoint: {filepath}")
         
         checkpoint = torch.load(filepath, map_location=self.device)
-        
+
+        # Required: model state
         self.model.load_state_dict(checkpoint['model_state_dict'])
-        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-        self.iteration = checkpoint['iteration']
-        self.total_games = checkpoint['total_games']
-        self.best_loss = checkpoint['best_loss']
-        
+
+        # Optional: optimizer state
+        if 'optimizer_state_dict' in checkpoint:
+            try:
+                self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            except Exception as e:
+                print(f"Warning: failed to load optimizer state: {e}")
+        else:
+            print("Warning: optimizer state not found in checkpoint — optimizer reinitialized.")
+
+        # Optional: scheduler state
+        if 'scheduler_state_dict' in checkpoint:
+            try:
+                self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+            except Exception as e:
+                print(f"Warning: failed to load scheduler state: {e}")
+        else:
+            print("Warning: scheduler state not found in checkpoint — scheduler will continue from defaults.")
+
+        # Load remaining metadata with safe defaults
+        self.iteration = checkpoint.get('iteration', getattr(self, 'iteration', 0))
+        self.total_games = checkpoint.get('total_games', getattr(self, 'total_games', 0))
+        self.best_loss = checkpoint.get('best_loss', getattr(self, 'best_loss', float('inf')))
+
         print(f"Resumed from iteration {self.iteration}, games: {self.total_games}")
     
     def train(self, num_iterations, games_per_iter, batches_per_iter):
